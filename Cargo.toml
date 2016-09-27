@@ -1,0 +1,9 @@
+[package]
+name = "kwak"
+version = "0.1.0"
+authors = ["Dimitri Sabadie <dimitri.sabadie@sculpteo.com>"]
+
+[dependencies]
+hyper = "0.9.10"
+regex = "0.1.77"
+serde_json = "0.8.2"
