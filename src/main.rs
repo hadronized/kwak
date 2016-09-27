@@ -1,5 +1,3 @@
-#![feature(custom_derive)]
-
 extern crate hyper;
 extern crate regex;
 extern crate serde_json;
