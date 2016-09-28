@@ -198,6 +198,8 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
             return;
           }
         }
+
+        // inspect mime (we only want HTML)
         if let Some(&header::ContentType(ref ty)) = response.headers.get() {
           println!("\x1b[36mty {:?}\x1b[0m", ty);
 
