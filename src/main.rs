@@ -171,15 +171,16 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
 
     let mut headers = header::Headers::new();
     headers.set(
-        header::Accept(vec![
-          header::qitem(mime::Mime(mime::TopLevel::Text, mime::SubLevel::Html, vec![]))
-        ])
+      header::Accept(vec![
+        header::qitem(mime::Mime(mime::TopLevel::Text, mime::SubLevel::Html, vec![]))
+      ])
     );
     headers.set(
-        header::AcceptCharset(vec![
-          header::qitem(header::Charset::Ext("utf-8".to_owned()))
-        ])
+      header::AcceptCharset(vec![
+        header::qitem(header::Charset::Ext("utf-8".to_owned()))
+      ])
     );
+    headers.set(header::UserAgent("hyper/0.5.2".to_owned()));
 
     println!("\x1b[36mGET {}\x1b[0m", url);
 
