@@ -187,6 +187,26 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
 
     match res {
       Ok(mut response) => {
+        // inspect the header to deny big things
+        if let Some(&header::ContentLength(bytes)) = response.headers.get() {
+          println!("\x1b[36msize {} bytes\x1b[0m", bytes);
+
+          // deny anything >= 1MB
+          if bytes >= 1000000 {
+            println!("\x1b[31m{} denied because too big ({} bytes)\x1b[0m", url, bytes);
+            return;
+          }
+        }
+        if let Some(&header::ContentType(ref ty)) = response.headers.get() {
+          println!("\x1b[36mty {:?}\x1b[0m", ty);
+
+          // deny anything that is not HTML
+          if ty.0 != mime::TopLevel::Text && ty.1 != mime::SubLevel::Html {
+            println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, ty);
+            return;
+          }
+        }
+
         let mut body = String::new();
         let _ = response.read_to_string(&mut body);
 
@@ -194,7 +214,8 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
         if let Some(captures) = re_title.captures(&body) {
           if let Some(title) = captures.at(1) {
             let channel = if &args[0] == &irc.nick { Some(&nick[..]) } else { None };
-            irc.say(&format!("\x037«\x036 {} \x037»\x0F", title), channel);
+            let cleaned_title: String = title.chars().filter(|c| *c != '\n').collect();
+            irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title.trim()), channel);
           }
         }
       },
@@ -265,9 +286,9 @@ fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
 fn main() {
   let host = "irc.freenode.net";
   let port = 6667;
-  let mut irc = IRCClient::connect(host, port, "kwak", "#demofr");
+  let mut irc = IRCClient::connect(host, port, "kwak", "#kwak2");
   let re_url = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
-  let re_title = Regex::new("<title>(.*)</title>").unwrap();
+  let re_title = Regex::new("<title>((.|\\s)*)</title>").unwrap();
 
   irc.init();
 
