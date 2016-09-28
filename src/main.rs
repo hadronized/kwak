@@ -9,6 +9,7 @@ use regex::Regex;
 
 use serde_json::de;
 use serde_json::ser;
+use std::ascii::AsciiExt;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
@@ -149,12 +150,12 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
     Some(Order::Tell(from, to, content)) => add_tell(irc, from, to, content),
     None => {
       // someone just said something, see whether we should say something
-      if let Some(msgs) = irc.tells.get(&nick).cloned() {
+      if let Some(msgs) = irc.tells.get(&nick.to_ascii_lowercase()).cloned() {
         for &(ref from, ref msg) in msgs.iter() {
           irc.say(&format!("\x02\x036{}\x0F: \x02\x032{}\x0F", from, msg), Some(&nick));
         }
 
-        irc.tells.remove(&nick);
+        irc.tells.remove(&nick.to_ascii_lowercase());
         irc.save_tells();
       }
     }
@@ -244,8 +245,8 @@ fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
 
 fn add_tell(irc: &mut IRCClient, from: Nick, to: Nick, content: String) {
   let mut msgs = irc.tells.get(&to).map_or(Vec::new(), |x| x.clone());
-  msgs.push((from, content));
-  irc.tells.insert(to, msgs);
+  msgs.push((from.to_ascii_lowercase(), content));
+  irc.tells.insert(to.to_ascii_lowercase(), msgs);
   irc.save_tells();
 }
 
