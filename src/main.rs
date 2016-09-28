@@ -286,7 +286,7 @@ fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
 fn main() {
   let host = "irc.freenode.net";
   let port = 6667;
-  let mut irc = IRCClient::connect(host, port, "kwak", "#kwak2");
+  let mut irc = IRCClient::connect(host, port, "kwak", "#demofr");
   let re_url = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
   let re_title = Regex::new("<title>((.|\\s)*)</title>").unwrap();
 
