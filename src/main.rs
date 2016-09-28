@@ -180,7 +180,7 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
         header::qitem(header::Charset::Ext("utf-8".to_owned()))
       ])
     );
-    headers.set(header::UserAgent("hyper/0.5.2".to_owned()));
+    headers.set(header::UserAgent("hyper".to_owned()));
 
     println!("\x1b[36mGET {}\x1b[0m", url);
 
