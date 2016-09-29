@@ -6,7 +6,6 @@ use hyper::client;
 use hyper::header;
 use hyper::mime;
 use regex::Regex;
-
 use serde_json::de;
 use serde_json::ser;
 use std::ascii::AsciiExt;
