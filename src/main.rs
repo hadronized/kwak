@@ -198,6 +198,7 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
         headers.set(
           header::AcceptCharset(vec![
             header::qitem(header::Charset::Ext("utf-8".to_owned())),
+            header::qitem(header::Charset::Ext("iso-8859-1".to_owned())),
             header::qitem(header::Charset::Iso_8859_1)
           ])
         );
