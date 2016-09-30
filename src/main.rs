@@ -10,10 +10,11 @@ use serde_json::de;
 use serde_json::ser;
 use std::ascii::AsciiExt;
 use std::collections::BTreeMap;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
 use std::path::Path;
-use std::fs::File;
+use std::thread;
 
 macro_rules! opt {
   ($option:expr) => {
@@ -24,6 +25,8 @@ macro_rules! opt {
   }
 }
 
+// TODO: split that into IRCClient containing only IRC stuff and TellCfg or something like that for
+// tells as we don’t want to carry them around all the fucking place
 struct IRCClient {
   stream: BufReader<net::TcpStream>,
   line_buf: String,
@@ -43,6 +46,18 @@ impl IRCClient {
       channel: channel.to_owned(),
       tells: read_tells("tells.json")
     }
+  }
+
+  fn try_clone(&self) -> Option<Self> {
+    self.stream.get_ref().try_clone().map(|stream| {
+      IRCClient {
+        stream: BufReader::new(stream),
+        line_buf: self.line_buf.clone(),
+        nick: self.nick.clone(),
+        channel: self.channel.clone(),
+        tells: self.tells.clone()
+      }
+    }).ok()
   }
 
   fn save_tells(&mut self) {
@@ -161,70 +176,81 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
   }
 
   // grab the content for further processing
-  let content = &args[1..].join(" ")[1..];
+  let content = args[1..].join(" ")[1..].to_owned();
 
   // look for URLs to scan
   let re_match = re_url.find(&content);
   if let Some((start_index, end_index)) = re_match {
-    let url = &content[start_index .. end_index];
+    // clone a few stuff to bring with us in the thread
+    let re_title = re_title.clone();
+    let channel = if &args[0] == &irc.nick { Some(nick.clone()) } else { None };
 
-    let mut headers = header::Headers::new();
-    headers.set(
-      header::Accept(vec![
-        header::qitem(mime::Mime(mime::TopLevel::Text, mime::SubLevel::Html, vec![]))
-      ])
-    );
-    headers.set(
-      header::AcceptCharset(vec![
-        header::qitem(header::Charset::Ext("utf-8".to_owned()))
-      ])
-    );
-    headers.set(header::UserAgent("hyper/0.9.10".to_owned()));
+    if let Some(mut irc) = irc.try_clone() {
+      let _ = thread::spawn(move || {
+        let url = &content[start_index .. end_index];
 
-    println!("\x1b[36mGET {}\x1b[0m", url);
+        let mut headers = header::Headers::new();
+        headers.set(
+          header::Accept(vec![
+            header::qitem(mime::Mime(mime::TopLevel::Text, mime::SubLevel::Html, vec![]))
+          ])
+        );
+        headers.set(
+          header::AcceptCharset(vec![
+            header::qitem(header::Charset::Ext("utf-8".to_owned()))
+          ])
+        );
+        headers.set(header::UserAgent("hyper/0.9.10".to_owned()));
 
-    let client = client::Client::new();
-    let res = client.get(url).headers(headers).send();
+        println!("\x1b[36mGET {}\x1b[0m", url);
 
-    match res {
-      Ok(mut response) => {
-        // inspect the header to deny big things
-        if let Some(&header::ContentLength(bytes)) = response.headers.get() {
-          println!("\x1b[36msize {} bytes\x1b[0m", bytes);
+        let client = client::Client::new();
+        let res = client.get(url).headers(headers).send();
 
-          // deny anything >= 1MB
-          if bytes >= 1000000 {
-            println!("\x1b[31m{} denied because too big ({} bytes)\x1b[0m", url, bytes);
-            return;
+        match res {
+          Ok(mut response) => {
+            // inspect the header to deny big things
+            if let Some(&header::ContentLength(bytes)) = response.headers.get() {
+              println!("\x1b[36msize {} bytes\x1b[0m", bytes);
+
+              // deny anything >= 1MB
+              if bytes >= 1000000 {
+                println!("\x1b[31m{} denied because too big ({} bytes)\x1b[0m", url, bytes);
+                return;
+              }
+            }
+
+            // inspect mime (we only want HTML)
+            if let Some(&header::ContentType(ref ty)) = response.headers.get() {
+              println!("\x1b[36mty {:?}\x1b[0m", ty);
+
+              // deny anything that is not HTML
+              if ty.0 != mime::TopLevel::Text && ty.1 != mime::SubLevel::Html {
+                println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, ty);
+                return;
+              }
+            }
+
+            let mut body = String::new();
+            let _ = response.read_to_string(&mut body);
+
+            // find the title and send it back to the main thread if found any
+            if let Some(captures) = re_title.captures(&body) {
+              if let Some(title) = captures.at(1) {
+                let cleaned_title: String = title.chars().filter(|c| *c != '\n').collect();
+
+                match channel {
+                  Some(nick) => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title.trim()), Some(&nick)),
+                  None => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title.trim()), None),
+                }
+              }
+            }
+          },
+          Err(e) => {
+            println!("\x1b[31munable to get {}: {:?}\x1b[0m", url, e);
           }
         }
-
-        // inspect mime (we only want HTML)
-        if let Some(&header::ContentType(ref ty)) = response.headers.get() {
-          println!("\x1b[36mty {:?}\x1b[0m", ty);
-
-          // deny anything that is not HTML
-          if ty.0 != mime::TopLevel::Text && ty.1 != mime::SubLevel::Html {
-            println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, ty);
-            return;
-          }
-        }
-
-        let mut body = String::new();
-        let _ = response.read_to_string(&mut body);
-
-        // find the title
-        if let Some(captures) = re_title.captures(&body) {
-          if let Some(title) = captures.at(1) {
-            let channel = if &args[0] == &irc.nick { Some(&nick[..]) } else { None };
-            let cleaned_title: String = title.chars().filter(|c| *c != '\n').collect();
-            irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title.trim()), channel);
-          }
-        }
-      },
-      Err(e) => {
-        println!("\x1b[31munable to get {}: {:?}\x1b[0m", url, e);
-      }
+      });
     }
   }
 }
