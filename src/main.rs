@@ -1,7 +1,9 @@
+extern crate html_entities;
 extern crate hyper;
 extern crate regex;
 extern crate serde_json;
 
+use html_entities::decode_html_entities;
 use hyper::client;
 use hyper::header;
 use hyper::mime;
@@ -241,6 +243,9 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
               if let Some(title) = captures.at(1) {
                 let cleaned_title: String = title.chars().filter(|c| *c != '\n').collect();
 
+                // decode entities ; if we cannot, just dump the title as-is
+                let cleaned_title = decode_html_entities(&cleaned_title).unwrap_or(cleaned_title);
+
                 match channel {
                   Some(nick) => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title.trim()), Some(&nick)),
                   None => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title.trim()), None),
@@ -317,7 +322,7 @@ fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
 fn main() {
   let host = "irc.freenode.net";
   let port = 6667;
-  let mut irc = IRCClient::connect(host, port, "kwak", "#demofr");
+  let mut irc = IRCClient::connect(host, port, "kwak_", "#kwak");
   let re_url = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
   let re_title = Regex::new("<title>((.|\\s)*)</title>").unwrap();
 
