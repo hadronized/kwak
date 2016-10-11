@@ -346,7 +346,7 @@ fn main() {
   let port = 6667;
   let mut irc = IRCClient::connect(host, port, "kwak", "#demofr");
   let re_url = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
-  let re_title = Regex::new("<title>((.|\\s)*)</title>").unwrap();
+  let re_title = Regex::new("<title>([^<]*)</title>").unwrap();
 
   irc.init();
 
