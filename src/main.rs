@@ -17,6 +17,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
 use std::path::Path;
 use std::thread;
+use std::time::Duration;
 
 macro_rules! opt {
   ($option:expr) => {
@@ -80,10 +81,15 @@ impl IRCClient {
 
   fn init(&mut self) {
     let nick = self.nick.clone();
-    let chan = self.channel.clone();
 
     self.write_line("USER a b c :d");
     self.write_line(&format!("NICK {}", nick));
+
+    self.rejoin();
+  }
+
+  fn rejoin(&mut self) {
+    let chan = self.channel.clone();
     self.write_line(&format!("JOIN {}", chan));
   }
 
@@ -149,7 +155,10 @@ fn dispatch_user_msg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick
     },
     "PRIVMSG" => {
       treat_privmsg(irc, re_url, re_title, nick, args);
-    }
+    },
+    "QUIT" => {
+      treat_quit(irc, nick);
+    },
     _ => {}
   }
 }
@@ -259,6 +268,13 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
         }
       });
     }
+  }
+}
+
+fn treat_quit(irc: &mut IRCClient, nick: String) {
+  if nick == irc.nick {
+    thread::sleep(Duration::from_secs(1));
+    irc.rejoin();
   }
 }
 
