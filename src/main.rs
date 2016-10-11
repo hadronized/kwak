@@ -17,7 +17,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
 use std::path::Path;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 macro_rules! opt {
   ($option:expr) => {
@@ -35,7 +35,8 @@ struct IRCClient {
   line_buf: String,
   nick: String,
   channel: String,
-  tells: Tells
+  tells: Tells,
+  last_instant: Instant
 }
 
 impl IRCClient {
@@ -47,7 +48,8 @@ impl IRCClient {
       line_buf: String::with_capacity(1024),
       nick: nick.to_owned(),
       channel: channel.to_owned(),
-      tells: read_tells("tells.json")
+      tells: read_tells("tells.json"),
+      last_instant: Instant::now()
     }
   }
 
@@ -58,7 +60,8 @@ impl IRCClient {
         line_buf: self.line_buf.clone(),
         nick: self.nick.clone(),
         channel: self.channel.clone(),
-        tells: self.tells.clone()
+        tells: self.tells.clone(),
+        last_instant: self.last_instant
       }
     }).ok()
   }
@@ -100,15 +103,18 @@ impl IRCClient {
   }
 
   fn say(&mut self, msg: &str, priv_user: Option<&str>) {
-    let header = "PRIVMSG ".to_owned();
+    if self.last_instant.elapsed() >= Duration::from_millis(500) {
+      self.last_instant = Instant::now();
+      let header = "PRIVMSG ".to_owned();
 
-    match priv_user {
-      Some(user) => {
-        self.write_line(&(header + user + " :" + msg));
-      },
-      None => {
-        let channel = &self.channel.clone();
-        self.write_line(&(header + channel + " :" + msg));
+      match priv_user {
+        Some(user) => {
+          self.write_line(&(header + user + " :" + msg));
+        },
+        None => {
+          let channel = &self.channel.clone();
+          self.write_line(&(header + channel + " :" + msg));
+        }
       }
     }
   }
