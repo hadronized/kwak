@@ -3,6 +3,7 @@ extern crate html_entities;
 extern crate hyper;
 extern crate regex;
 extern crate serde_json;
+extern crate time;
 
 use clap::{App, Arg};
 use html_entities::decode_html_entities;
@@ -20,6 +21,7 @@ use std::net;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
+use time::now;
 
 macro_rules! opt {
   ($option:expr) => {
@@ -129,8 +131,10 @@ impl IRCClient {
       .create(true)
       .append(true)
       .open(&self.quotes_file).unwrap();
+    let t = now();
+    let bytes = format!("{:02}:{}:{} {}", t.tm_hour, t.tm_min, t.tm_sec, msg);
 
-    let _ = file.write_all(msg.as_bytes());
+    let _ = file.write_all(bytes.as_bytes());
   }
 }
 
@@ -211,7 +215,7 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
   let content = args[1..].join(" ").to_owned();
 
   // log what the user said for future quotes
-  irc.log_msg(&format!("<{}> {}\n", nick, content));
+  irc.log_msg(&format!("{} {}\n", nick, content));
 
   // look for URLs to scan
   let re_match = re_url.find(&content);

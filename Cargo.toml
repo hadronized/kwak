@@ -9,3 +9,4 @@ html-entities = { git = "https://github.com/phaazon/html-entities" }
 hyper = "0.9.10"
 regex = "0.1.77"
 serde_json = "0.8.2"
+time = "0.1.35"
