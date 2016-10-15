@@ -132,7 +132,7 @@ impl IRCClient {
       .append(true)
       .open(&self.quotes_file).unwrap();
     let t = now();
-    let bytes = format!("{:02}:{}:{} {}", t.tm_hour, t.tm_min, t.tm_sec, msg);
+    let bytes = format!("{:02}:{:02}:{:02} {}", t.tm_hour, t.tm_min, t.tm_sec, msg);
 
     let _ = file.write_all(bytes.as_bytes());
   }
