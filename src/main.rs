@@ -159,12 +159,13 @@ fn dispatch_user_msg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick
   }
 }
 
-fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Nick, args: Vec<String>) {
+fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Nick, mut args: Vec<String>) {
   // early return to prevent us to talk to ourself
   if nick == irc.nick {
     return;
   }
 
+  args[1].remove(0); // remove the leading ':'
   let order = extract_order(nick.clone(), &args[1..]);
 
   match order {
@@ -268,9 +269,7 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
 }
 
 fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
-  let first = &(&msg[0])[1..]; // remove the ':'
-
-  if first == "!tell" {
+  if msg[0] == "!tell" {
     if msg.len() >= 3 {
       // we have someone to tell something
       let to = msg[1].to_owned();
