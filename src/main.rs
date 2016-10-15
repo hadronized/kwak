@@ -1,8 +1,10 @@
+extern crate clap;
 extern crate html_entities;
 extern crate hyper;
 extern crate regex;
 extern crate serde_json;
 
+use clap::{App, Arg};
 use html_entities::decode_html_entities;
 use hyper::client;
 use hyper::header;
@@ -15,7 +17,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 
 macro_rules! opt {
@@ -34,11 +36,12 @@ struct IRCClient {
   line_buf: String,
   nick: String,
   channel: String,
-  tells: Tells
+  tells: Tells,
+  quotes_file: PathBuf
 }
 
 impl IRCClient {
-  fn connect(addr: &str, port: u16, nick: &str, channel: &str) -> Self {
+  fn connect(addr: &str, port: u16, nick: &str, channel: &str, tells_file: &str, quotes_file: &str) -> Self {
     let stream = BufReader::new(net::TcpStream::connect((addr, port)).unwrap());
 
     IRCClient {
@@ -46,7 +49,8 @@ impl IRCClient {
       line_buf: String::with_capacity(1024),
       nick: nick.to_owned(),
       channel: channel.to_owned(),
-      tells: read_tells("tells.json")
+      tells: read_tells(tells_file),
+      quotes_file: Path::new(quotes_file).to_owned()
     }
   }
 
@@ -57,7 +61,8 @@ impl IRCClient {
         line_buf: self.line_buf.clone(),
         nick: self.nick.clone(),
         channel: self.channel.clone(),
-        tells: self.tells.clone()
+        tells: self.tells.clone(),
+        quotes_file: self.quotes_file.clone()
       }
     }).ok()
   }
@@ -320,9 +325,47 @@ fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
 }
 
 fn main() {
-  let host = "irc.freenode.net";
+  let options = App::new("kwak")
+    .arg(Arg::with_name("host")
+         .short("h")
+         .long("host")
+         .help("IRC server host to connect to")
+         .required(true)
+         .takes_value(true))
+    .arg(Arg::with_name("channel")
+         .short("c")
+         .long("channel")
+         .help("IRC channel to join upon connection")
+         .required(true)
+         .takes_value(true))
+    .arg(Arg::with_name("nick")
+         .short("n")
+         .long("nick")
+         .help("IRC nickname to use")
+         .required(true)
+         .takes_value(true))
+    .arg(Arg::with_name("tells")
+         .short("t")
+         .long("tells_file")
+         .value_name("FILE")
+         .help("Path to the JSON file containing the tells")
+         .takes_value(true))
+    .arg(Arg::with_name("quotes")
+         .short("q")
+         .long("quotes_file")
+         .value_name("FILE")
+         .help("Path to the JSON file containing the quotes")
+         .takes_value(true))
+    .get_matches();
+
+  let host = options.value_of("host").unwrap();
+  let channel = options.value_of("channel").unwrap();
+  let nick = options.value_of("nick").unwrap();
+  let tells_file = options.value_of("tells").unwrap_or("tells.json");
+  let quotes_file = options.value_of("quotes").unwrap_or("quotes.json");
+
   let port = 6667;
-  let mut irc = IRCClient::connect(host, port, "kwak", "#demofr");
+  let mut irc = IRCClient::connect(host, port, nick, channel, tells_file, quotes_file);
   let re_url = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
   let re_title = Regex::new("<title>((.|\\s)*)</title>").unwrap();
 
