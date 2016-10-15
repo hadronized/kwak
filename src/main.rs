@@ -14,7 +14,7 @@ use serde_json::de;
 use serde_json::ser;
 use std::ascii::AsciiExt;
 use std::collections::BTreeMap;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
 use std::path::{Path, PathBuf};
@@ -111,6 +111,15 @@ impl IRCClient {
       }
     }
   }
+
+  fn log_msg(&self, msg: &str) {
+    let mut file = OpenOptions::new()
+      .create(true)
+      .append(true)
+      .open(&self.quotes_file).unwrap();
+
+    let _ = file.write_all(msg.as_bytes());
+  }
 }
 
 fn is_ping(msg: &str) -> bool {
@@ -184,7 +193,10 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
   }
 
   // grab the content for further processing
-  let content = args[1..].join(" ")[1..].to_owned();
+  let content = args[1..].join(" ").to_owned();
+
+  // log what the user said for future quotes
+  irc.log_msg(&format!("<{}> {}\n", nick, content));
 
   // look for URLs to scan
   let re_match = re_url.find(&content);
@@ -361,7 +373,7 @@ fn main() {
   let channel = options.value_of("channel").unwrap();
   let nick = options.value_of("nick").unwrap();
   let tells_file = options.value_of("tells").unwrap_or("tells.json");
-  let quotes_file = options.value_of("quotes").unwrap_or("quotes.json");
+  let quotes_file = options.value_of("quotes").unwrap_or("quotes.log");
 
   let port = 6667;
   let mut irc = IRCClient::connect(host, port, nick, channel, tells_file, quotes_file);
