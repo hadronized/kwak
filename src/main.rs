@@ -19,6 +19,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
 use std::path::{Path, PathBuf};
 use std::thread;
+use std::time::{Duration, Instant};
 
 macro_rules! opt {
   ($option:expr) => {
@@ -37,7 +38,8 @@ struct IRCClient {
   nick: String,
   channel: String,
   tells: Tells,
-  quotes_file: PathBuf
+  quotes_file: PathBuf,
+  last_instant: Instant,
 }
 
 impl IRCClient {
@@ -50,7 +52,8 @@ impl IRCClient {
       nick: nick.to_owned(),
       channel: channel.to_owned(),
       tells: read_tells(tells_file),
-      quotes_file: Path::new(quotes_file).to_owned()
+      quotes_file: Path::new(quotes_file).to_owned(),
+      last_instant: Instant::now(),
     }
   }
 
@@ -62,7 +65,8 @@ impl IRCClient {
         nick: self.nick.clone(),
         channel: self.channel.clone(),
         tells: self.tells.clone(),
-        quotes_file: self.quotes_file.clone()
+        quotes_file: self.quotes_file.clone(),
+        last_instant: self.last_instant,
       }
     }).ok()
   }
@@ -85,10 +89,15 @@ impl IRCClient {
 
   fn init(&mut self) {
     let nick = self.nick.clone();
-    let chan = self.channel.clone();
 
     self.write_line("USER a b c :d");
     self.write_line(&format!("NICK {}", nick));
+
+    self.rejoin();
+  }
+
+  fn rejoin(&mut self) {
+    let chan = self.channel.clone();
     self.write_line(&format!("JOIN {}", chan));
   }
 
@@ -99,15 +108,18 @@ impl IRCClient {
   }
 
   fn say(&mut self, msg: &str, priv_user: Option<&str>) {
-    let header = "PRIVMSG ".to_owned();
+    if self.last_instant.elapsed() >= Duration::from_millis(500) {
+      self.last_instant = Instant::now();
+      let header = "PRIVMSG ".to_owned();
 
-    match priv_user {
-      Some(user) => {
-        self.write_line(&(header + user + " :" + msg));
-      },
-      None => {
-        let channel = &self.channel.clone();
-        self.write_line(&(header + channel + " :" + msg));
+      match priv_user {
+        Some(user) => {
+          self.write_line(&(header + user + " :" + msg));
+        },
+        None => {
+          let channel = &self.channel.clone();
+          self.write_line(&(header + channel + " :" + msg));
+        }
       }
     }
   }
@@ -163,7 +175,10 @@ fn dispatch_user_msg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick
     },
     "PRIVMSG" => {
       treat_privmsg(irc, re_url, re_title, nick, args);
-    }
+    },
+    "QUIT" => {
+      treat_quit(irc, nick);
+    },
     _ => {}
   }
 }
@@ -280,6 +295,13 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
   }
 }
 
+fn treat_quit(irc: &mut IRCClient, nick: String) {
+  if nick == irc.nick {
+    thread::sleep(Duration::from_secs(1));
+    irc.rejoin();
+  }
+}
+
 fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
   if msg[0] == "!tell" {
     if msg.len() >= 3 {
@@ -378,7 +400,7 @@ fn main() {
   let port = 6667;
   let mut irc = IRCClient::connect(host, port, nick, channel, tells_file, quotes_file);
   let re_url = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
-  let re_title = Regex::new("<title>((.|\\s)*)</title>").unwrap();
+  let re_title = Regex::new("<title>([^<]*)</title>").unwrap();
 
   irc.init();
 
