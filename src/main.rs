@@ -1,4 +1,6 @@
 extern crate clap;
+#[macro_use]
+extern crate lazy_static;
 extern crate html_entities;
 extern crate hyper;
 extern crate regex;
@@ -27,9 +29,15 @@ macro_rules! opt {
   ($option:expr) => {
     match $option {
       ::std::option::Option::Some(a) => a,
-      ::std::option::Option::None => return None
+      ::std::option::Option::None => return ::std::option::Option::None
     }
   }
+}
+
+lazy_static!{
+  static ref RE_URL: Regex = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
+  static ref RE_TITLE: Regex = Regex::new("<title>([^<]*)</title>").unwrap();
+  static ref RE_YOUTUBE: Regex = Regex::new("https?://www.youtube.com/watch.+v=([^&?]+)").unwrap();
 }
 
 // TODO: split that into IRCClient containing only IRC stuff and TellCfg or something like that for
@@ -172,13 +180,13 @@ fn extract_user_msg(msg: &str) -> Option<(Nick, Cmd, Vec<String>)> {
   }
 }
 
-fn dispatch_user_msg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Nick, cmd: Cmd, args: Vec<String>) {
+fn dispatch_user_msg(irc: &mut IRCClient, nick: Nick, cmd: Cmd, args: Vec<String>) {
   match &cmd[..] {
     "JOIN" => {
       println!("\x1b[36m{} joined!\x1b[0m", nick);
     },
     "PRIVMSG" => {
-      treat_privmsg(irc, re_url, re_title, nick, args);
+      treat_privmsg(irc, nick, args);
     },
     "QUIT" => {
       treat_quit(irc, nick);
@@ -187,8 +195,8 @@ fn dispatch_user_msg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick
   }
 }
 
-fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Nick, mut args: Vec<String>) {
-  // early return to prevent us to talk to ourself
+fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
+  // early return to prevent us from talking to ourself
   if nick == irc.nick {
     return;
   }
@@ -218,65 +226,33 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
   irc.log_msg(&format!("{} {}\n", nick, content));
 
   // look for URLs to scan
-  let re_match = re_url.find(&content);
+  let private = &args[0] == &irc.nick;
+  scan_url(irc, nick, private, content);
+}
+
+fn scan_url(irc: &mut IRCClient, nick: Nick, private: bool, content: String) {
+  let re_match = RE_URL.find(&content);
+
   if let Some((start_index, end_index)) = re_match {
     // clone a few stuff to bring with us in the thread
-    let re_title = re_title.clone();
-    let channel = if &args[0] == &irc.nick { Some(nick.clone()) } else { None };
+    let channel = if private { Some(nick.clone()) } else { None };
 
     if let Some(mut irc) = irc.try_clone() {
       let _ = thread::spawn(move || {
         let url = &content[start_index .. end_index];
 
-        let mut headers = header::Headers::new();
-        headers.set(
-          header::Accept(vec![
-            header::qitem(mime::Mime(mime::TopLevel::Text, mime::SubLevel::Html, vec![]))
-          ])
-        );
-        headers.set(
-          header::AcceptCharset(vec![
-            header::qitem(header::Charset::Ext("utf-8".to_owned())),
-            header::qitem(header::Charset::Ext("iso-8859-1".to_owned())),
-            header::qitem(header::Charset::Iso_8859_1)
-          ])
-        );
-        headers.set(header::UserAgent("hyper/0.9.10".to_owned()));
-
-        println!("\x1b[36mGET {}\x1b[0m", url);
-
-        let client = client::Client::new();
-        let res = client.get(url).headers(headers).send();
-
-        match res {
+        match http_get(url) {
           Ok(mut response) => {
             // inspect the header to deny big things
-            if let Some(&header::ContentLength(bytes)) = response.headers.get() {
-              println!("\x1b[36msize {} bytes\x1b[0m", bytes);
-
-              // deny anything >= 1MB
-              if bytes >= 1000000 {
-                println!("\x1b[31m{} denied because too big ({} bytes)\x1b[0m", url, bytes);
-                return;
-              }
-            }
-
-            // inspect mime (we only want HTML)
-            if let Some(&header::ContentType(ref ty)) = response.headers.get() {
-              println!("\x1b[36mty {:?}\x1b[0m", ty);
-
-              // deny anything that is not HTML
-              if ty.0 != mime::TopLevel::Text && ty.1 != mime::SubLevel::Html {
-                println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, ty);
-                return;
-              }
+            if !is_http_response_valid(url, &response.headers) {
+              return;
             }
 
             let mut body = String::new();
             let _ = response.read_to_string(&mut body);
 
             // find the title and send it back to the main thread if found any
-            if let Some(captures) = re_title.captures(&body) {
+            if let Some(captures) = RE_TITLE.captures(&body) {
               if let Some(title) = captures.at(1) {
                 let cleaned_title: String = title.chars().filter(|c| *c != '\n').collect();
 
@@ -297,6 +273,55 @@ fn treat_privmsg(irc: &mut IRCClient, re_url: &Regex, re_title: &Regex, nick: Ni
       });
     }
   }
+}
+
+fn http_get(url: &str) -> hyper::error::Result<client::response::Response> {
+  let mut headers = header::Headers::new();
+
+  headers.set(
+    header::Accept(vec![
+      header::qitem(mime::Mime(mime::TopLevel::Text, mime::SubLevel::Html, vec![]))
+    ])
+  );
+  headers.set(
+    header::AcceptCharset(vec![
+      header::qitem(header::Charset::Ext("utf-8".to_owned())),
+      header::qitem(header::Charset::Ext("iso-8859-1".to_owned())),
+      header::qitem(header::Charset::Iso_8859_1)
+    ])
+  );
+  headers.set(header::UserAgent("hyper/0.9.10".to_owned()));
+
+  println!("\x1b[36mGET {}\x1b[0m", url);
+
+  let client = client::Client::new();
+  client.get(url).headers(headers).send()
+}
+
+fn is_http_response_valid(url: &str, headers: &header::Headers) -> bool {
+  // inspect the header to deny big things
+  if let Some(&header::ContentLength(bytes)) = headers.get() {
+    println!("\x1b[36msize {} bytes\x1b[0m", bytes);
+
+    // deny anything >= 1MB
+    if bytes >= 1000000 {
+      println!("\x1b[31m{} denied because too big ({} bytes)\x1b[0m", url, bytes);
+      return false;
+    }
+  }
+
+  // inspect mime (we only want HTML)
+  if let Some(&header::ContentType(ref ty)) = headers.get() {
+    println!("\x1b[36mty {:?}\x1b[0m", ty);
+
+    // deny anything that is not HTML
+    if ty.0 != mime::TopLevel::Text && ty.1 != mime::SubLevel::Html {
+      println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, ty);
+      return false;
+    }
+  }
+
+  true
 }
 
 fn treat_quit(irc: &mut IRCClient, nick: String) {
@@ -403,8 +428,6 @@ fn main() {
 
   let port = 6667;
   let mut irc = IRCClient::connect(host, port, nick, channel, tells_file, quotes_file);
-  let re_url = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
-  let re_title = Regex::new("<title>([^<]*)</title>").unwrap();
 
   irc.init();
 
@@ -418,7 +441,7 @@ fn main() {
     }
 
     if let Some(user_msg) = extract_user_msg(&line) {
-      dispatch_user_msg(&mut irc, &re_url, &re_title, user_msg.0, user_msg.1, user_msg.2);
+      dispatch_user_msg(&mut irc, user_msg.0, user_msg.1, user_msg.2);
     }
   }
 }
