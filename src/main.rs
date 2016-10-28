@@ -38,6 +38,7 @@ lazy_static!{
   static ref RE_URL: Regex = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
   static ref RE_TITLE: Regex = Regex::new("<title>([^<]*)</title>").unwrap();
   static ref RE_YOUTUBE: Regex = Regex::new("https?://www.youtube.com/watch.+v=([^&?]+)").unwrap();
+  static ref RE_YOUTU_BE: Regex = Regex::new("https?://youtu\\.be/(.+)").unwrap();
 }
 
 // TODO: split that into IRCClient containing only IRC stuff and TellCfg or something like that for
@@ -239,12 +240,26 @@ fn scan_url(irc: &mut IRCClient, nick: Nick, private: bool, content: String) {
 
     if let Some(mut irc) = irc.try_clone() {
       let _ = thread::spawn(move || {
-        let url = &content[start_index .. end_index];
+        let mut url = String::from(&content[start_index .. end_index]);
+        let url2 = url.clone();
+        let youtube_video_id = RE_YOUTUBE.captures(&url2);
+        let youtu_be_video_id = RE_YOUTU_BE.captures(&url2);
 
-        match http_get(url) {
+        // partial fix for youtube videos; we cannot directly hit Google’s servers; use a shitty
+        // web service instead
+        match (youtube_video_id, youtu_be_video_id) {
+          (Some(captures), _) | (_, Some(captures)) => {
+            if let Some(video_id) = captures.at(1) {
+              url = format!("http://www.infinitelooper.com/?v={}", video_id);
+            }
+          },
+          _ => {}
+        }
+
+        match http_get(&url) {
           Ok(mut response) => {
             // inspect the header to deny big things
-            if !is_http_response_valid(url, &response.headers) {
+            if !is_http_response_valid(&url, &response.headers) {
               return;
             }
 
@@ -258,10 +273,14 @@ fn scan_url(irc: &mut IRCClient, nick: Nick, private: bool, content: String) {
 
                 // decode entities ; if we cannot, just dump the title as-is
                 let cleaned_title = decode_html_entities(&cleaned_title).unwrap_or(cleaned_title);
+                let cleaned_title = &cleaned_title.trim()[17..];
+
+                // partial fix for youtube; remove the "InfiniteLooper - " header from the title
+                //let cleaned_title = clean
 
                 match channel {
-                  Some(nick) => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title.trim()), Some(&nick)),
-                  None => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title.trim()), None),
+                  Some(nick) => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title), Some(&nick)),
+                  None => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title), None),
                 }
               }
             }
