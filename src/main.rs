@@ -37,7 +37,7 @@ macro_rules! opt {
 lazy_static!{
   static ref RE_URL: Regex = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
   static ref RE_TITLE: Regex = Regex::new("<title>([^<]*)</title>").unwrap();
-  static ref RE_YOUTUBE: Regex = Regex::new("https?://www.youtube.com/watch.+v=([^&?]+)").unwrap();
+  static ref RE_YOUTUBE: Regex = Regex::new("https?://www\\.youtube\\.com/watch.+v=([^&?]+)").unwrap();
   static ref RE_YOUTU_BE: Regex = Regex::new("https?://youtu\\.be/(.+)").unwrap();
 }
 
