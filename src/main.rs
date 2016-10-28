@@ -247,8 +247,8 @@ fn scan_url(irc: &mut IRCClient, nick: Nick, private: bool, content: String) {
 
         // partial fix for youtube videos; we cannot directly hit Google’s servers; use a shitty
         // web service instead
-        match (youtube_video_id, youtu_be_video_id) {
-          (Some(captures), _) | (_, Some(captures)) => {
+        match (&youtube_video_id, &youtu_be_video_id) {
+          (&Some(ref captures), _) | (_, &Some(ref captures)) => {
             if let Some(video_id) = captures.at(1) {
               url = format!("http://www.infinitelooper.com/?v={}", video_id);
             }
@@ -273,10 +273,12 @@ fn scan_url(irc: &mut IRCClient, nick: Nick, private: bool, content: String) {
 
                 // decode entities ; if we cannot, just dump the title as-is
                 let cleaned_title = decode_html_entities(&cleaned_title).unwrap_or(cleaned_title);
-                let cleaned_title = &cleaned_title.trim()[17..];
+                let mut cleaned_title = cleaned_title.trim();
 
                 // partial fix for youtube; remove the "InfiniteLooper - " header from the title
-                //let cleaned_title = clean
+                if youtube_video_id.is_some() || youtu_be_video_id.is_some() {
+                  cleaned_title = &cleaned_title[17..];
+                }
 
                 match channel {
                   Some(nick) => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title), Some(&nick)),
