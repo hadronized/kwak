@@ -280,9 +280,26 @@ fn scan_url(irc: &mut IRCClient, nick: Nick, private: bool, content: String) {
                   cleaned_title = &cleaned_title[17..];
                 }
 
+                // remove internal consecutive spaces
+                let mut space_prev = false;
+                let final_title: String = cleaned_title.chars().filter(move |&c| {
+                  if c == ' ' {
+                    if space_prev {
+                      // if this space is contiguous to others, just don’t include him anymore
+                      false
+                    } else {
+                      space_prev = true;
+                      true
+                    }
+                  } else {
+                    space_prev = false;
+                    true
+                  }
+                }).collect();
+
                 match channel {
-                  Some(nick) => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title), Some(&nick)),
-                  None => irc.say(&format!("\x037«\x036 {} \x037»\x0F", cleaned_title), None),
+                  Some(nick) => irc.say(&format!("\x037«\x036 {} \x037»\x0F", final_title), Some(&nick)),
+                  None => irc.say(&format!("\x037«\x036 {} \x037»\x0F", final_title), None),
                 }
               }
             }
