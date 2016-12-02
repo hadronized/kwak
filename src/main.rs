@@ -207,8 +207,10 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
 
   match order {
     Some(Order::Tell(from, to, content)) => add_tell(irc, from, to, content),
+    Some(Order::PrependTopic(topic)) => prepend_topic(irc, topic),
+    Some(Order::ResetTopic(topic)) => reset_topic(irc, topic),
     None => {
-      // someone just said something, see whether we should say something
+      // someone just said something, and it’s not an order, see whether we should say something
       if let Some(msgs) = irc.tells.get(&nick.to_ascii_lowercase()).cloned() {
         for &(ref from, ref msg) in msgs.iter() {
           irc.say(&format!("\x02\x036{}\x0F: \x02\x032{}\x0F", from, msg), Some(&nick));
@@ -370,17 +372,26 @@ fn treat_quit(irc: &mut IRCClient, nick: String) {
 }
 
 fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
-  if msg[0] == "!tell" {
-    if msg.len() >= 3 {
+  match &(msg[0])[..] {
+    "!tell" if msg.len() >= 3 => {
       // we have someone to tell something
       let to = msg[1].to_owned();
       let content = msg[2..].join(" ");
 
-      return Some(Order::Tell(from, to, content));
-    }
+      Some(Order::Tell(from, to, content))
+    },
+    "!tropico" if msg.len() >= 2 => {
+      // we want to prepend something to the current topic
+      let content = msg[1..].join(" ");
+      Some(Order::PrependTopic(content))
+    },
+    "!tropicoset" if msg.len() >= 2 => {
+      // want to reset the current topic
+      let content = msg[1..].join(" ");
+      Some(Order::ResetTopic(content))
+    },
+    _ => None
   }
-
-  None
 }
 
 fn add_tell(irc: &mut IRCClient, from: Nick, to: Nick, content: String) {
@@ -390,10 +401,49 @@ fn add_tell(irc: &mut IRCClient, from: Nick, to: Nick, content: String) {
   irc.save_tells();
 }
 
+fn prepend_topic(irc: &mut IRCClient, topic_part: String) {
+  match read_topic(irc) {
+    Some(ref topic) if topic_part != *topic => {
+      let chan = irc.channel.clone();
+
+      if topic.is_empty() {
+        irc.write_line(&format!("TOPIC {} :{}", chan, topic_part));
+      } else {
+        irc.write_line(&format!("TOPIC {} :{} · {}", chan, topic_part, topic));
+      }
+    },
+    _ => {
+      println!("\x1b[31munable to get topic\x1b[0m");
+    }
+  }
+}
+
+fn reset_topic(irc: &mut IRCClient, new_topic: String) {
+  let chan = irc.channel.clone();
+  irc.write_line(&format!("TOPIC {} :{}", chan, new_topic));
+}
+
+fn read_topic(irc: &mut IRCClient) -> Option<String> {
+  // ask for the topic
+  let chan = irc.channel.clone();
+  irc.write_line(&format!("TOPIC {}", chan));
+
+  // get the topic
+  let topic = irc.read_line();
+
+  // clean it
+  (&topic[1..]).find(':').map(|colon_ix| { // [1..] removes the first ':' (IRC proto)
+    let colon_ix = colon_ix + 2;
+    String::from((&topic[colon_ix..]).trim())
+  })
+}
+
 #[derive(Debug)]
 enum Order {
   // from, to, content
-  Tell(Nick, Nick, String)
+  Tell(Nick, Nick, String),
+  PrependTopic(String),
+  ResetTopic(String)
 }
 
 type Nick = String;
