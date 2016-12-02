@@ -407,9 +407,9 @@ fn prepend_topic(irc: &mut IRCClient, topic_part: String) {
       let chan = irc.channel.clone();
 
       if topic.is_empty() {
-        irc.write_line(&format!("TOPIC {} :{}", chan, topic_part));
+        irc.write_line(&format!("TOPIC {} :{}", chan, topic_part)); // FIXME: sanitize
       } else {
-        irc.write_line(&format!("TOPIC {} :{} · {}", chan, topic_part, topic));
+        irc.write_line(&format!("TOPIC {} :{} · {}", chan, topic_part, topic)); // FIXME: sanitize
       }
     },
     _ => {
@@ -420,7 +420,7 @@ fn prepend_topic(irc: &mut IRCClient, topic_part: String) {
 
 fn reset_topic(irc: &mut IRCClient, new_topic: String) {
   let chan = irc.channel.clone();
-  irc.write_line(&format!("TOPIC {} :{}", chan, new_topic));
+  irc.write_line(&format!("TOPIC {} :{}", chan, new_topic)); // FIXME: sanitize
 }
 
 fn read_topic(irc: &mut IRCClient) -> Option<String> {
