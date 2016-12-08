@@ -54,7 +54,8 @@ struct IRCClient {
   tells: Tells,
   quotes_file: PathBuf,
   last_instant: Instant,
-  markov_chain: MarkovChain
+  markov_chain: MarkovChain,
+  last_intervention: Instant
 }
 
 impl IRCClient {
@@ -69,7 +70,8 @@ impl IRCClient {
       tells: read_tells(tells_file),
       quotes_file: Path::new(quotes_file).to_owned(),
       last_instant: Instant::now(),
-      markov_chain: markov_chain
+      markov_chain: markov_chain,
+      last_intervention: Instant::now()
     }
   }
 
@@ -83,7 +85,8 @@ impl IRCClient {
         tells: self.tells.clone(),
         quotes_file: self.quotes_file.clone(),
         last_instant: self.last_instant,
-        markov_chain: self.markov_chain.clone() // FIXME: we seriously need to fix that
+        markov_chain: self.markov_chain.clone(), // FIXME: we seriously need to fix that
+        last_intervention: self.last_intervention.clone()
       }
     }).ok()
   }
@@ -234,6 +237,31 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
 
   // log what the user said for future quotes
   irc.log_msg(&format!("{} {}\n", nick, content));
+
+  // add what that people say to the markov model
+  {
+    let words = &args[1..];
+    
+    if words.len() > 1 {
+      for (word, next) in words.iter().zip(&words[1..]) {
+        irc.markov_chain.add_entry(word, next);
+      }
+    }
+  }
+
+  // check whether we should say something stupid
+  if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
+    let between = Range::new(0., 1.);
+    let mut rng = rand::thread_rng();
+    let speak_prob = between.ind_sample(&mut rng);
+
+    println!("speak prob: {}", speak_prob);
+
+    if speak_prob >= 0.9 {
+      bot_quote(irc);
+      irc.last_intervention = Instant::now();
+    }
+  }
 
   // look for URLs to scan
   let private = &args[0] == &irc.nick;
