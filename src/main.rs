@@ -3,6 +3,7 @@ extern crate clap;
 extern crate lazy_static;
 extern crate html_entities;
 extern crate hyper;
+extern crate rand;
 extern crate regex;
 extern crate serde_json;
 extern crate time;
@@ -12,6 +13,8 @@ use html_entities::decode_html_entities;
 use hyper::client;
 use hyper::header;
 use hyper::mime;
+use rand::Rng;
+use rand::distributions::{IndependentSample, Range};
 use regex::Regex;
 use serde_json::de;
 use serde_json::ser;
@@ -212,6 +215,7 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
     Some(Order::Tell(from, to, content)) => add_tell(irc, from, to, content),
     Some(Order::PrependTopic(topic)) => prepend_topic(irc, topic),
     Some(Order::ResetTopic(topic)) => reset_topic(irc, topic),
+    Some(Order::BotQuote) => bot_quote(irc),
     None => {
       // someone just said something, and it’s not an order, see whether we should say something
       if let Some(msgs) = irc.tells.get(&nick.to_ascii_lowercase()).cloned() {
@@ -393,6 +397,10 @@ fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
       let content = msg[1..].join(" ");
       Some(Order::ResetTopic(content))
     },
+    "!q" if msg.len() == 1 => {
+      // nothing to do; just ask for a uber cool quote!
+      Some(Order::BotQuote)
+    },
     _ => None
   }
 }
@@ -441,12 +449,45 @@ fn read_topic(irc: &mut IRCClient) -> Option<String> {
   })
 }
 
+fn bot_quote(irc: &mut IRCClient) {
+  let chan = irc.channel.clone();
+  let between = Range::new(4, 16);
+  let mut rng = rand::thread_rng();
+
+  let quote_len = between.ind_sample(&mut rng);
+  println!("building a quote which len is {}", quote_len);
+
+  // select the first word
+  let between = Range::new(0, irc.markov_chain.chain.len());
+  let word_index = between.ind_sample(&mut rng);
+  let mut word = irc.markov_chain.chain.keys().collect::<Vec<_>>()[word_index].clone(); // FIXME: expensive you said?
+
+  let mut words: Vec<String> = Vec::with_capacity(quote_len);
+
+  for _ in 0..quote_len {
+    let next_words = irc.markov_chain.next_words(&word);
+
+    if next_words.is_empty() {
+      break;
+    }
+
+    let between = Range::new(0, next_words.len());
+    let next_word_index = between.ind_sample(&mut rng);
+
+    word = next_words[next_word_index].clone().0;
+    words.push(word.clone());
+  }
+
+  irc.say(&words.join(" "), None);
+}
+
 #[derive(Debug)]
 enum Order {
   // from, to, content
   Tell(Nick, Nick, String),
   PrependTopic(String),
-  ResetTopic(String)
+  ResetTopic(String),
+  BotQuote
 }
 
 type Nick = String;
@@ -499,8 +540,8 @@ impl MarkovChain {
   }
 
   /// Retrieve the list of words following a word with associated probabilities.
-  fn next_words(&self, word: Word) -> Vec<(Word, f32)> {
-    let words = self.chain.get(&word).map_or(Vec::new(), |hashmap| hashmap.iter().collect());
+  fn next_words(&self, word: &str) -> Vec<(Word, f32)> {
+    let words = self.chain.get(word).map_or(Vec::new(), |hashmap| hashmap.iter().collect());
     let tot = words.iter().fold(0, |tot, &(_, &count)| tot + count);
 
     words.into_iter().map(|(word, &count)| (word.clone(), count as f32 / tot as f32)).collect()
