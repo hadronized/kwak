@@ -16,7 +16,7 @@ use regex::Regex;
 use serde_json::de;
 use serde_json::ser;
 use std::ascii::AsciiExt;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
@@ -449,7 +449,7 @@ enum Order {
 type Nick = String;
 type Cmd = String;
 type Message = String;
-type Tells = BTreeMap<Nick, Vec<(Nick, Message)>>;
+type Tells = HashMap<Nick, Vec<(Nick, Message)>>;
 
 fn read_tells<P>(path: P) -> Tells where P: AsRef<Path> {
   match File::open(path.as_ref()) {
@@ -471,6 +471,36 @@ fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
     Err(e) => {
       println!("\x1b[31munable to save tells to {:?}: {}\x1b[0m", path.as_ref(), e);
     }
+  }
+}
+
+type Word = String;
+
+#[derive(Clone, Debug)]
+struct MarkovChain {
+  chain: HashMap<Word, HashMap<Word, u32>>, // (next_word, count)
+}
+
+impl MarkovChain {
+  /// Create a new empty markov chain.
+  fn new() -> Self {
+    MarkovChain {
+      chain: HashMap::new()
+    }
+  }
+
+  /// Add a word and its next word to the markov chain.
+  fn add_entry(&mut self, word: Word, next_word: Word) {
+    *self.chain.entry(word).or_insert(HashMap::new())
+      .entry(next_word).or_insert(0) += 1;
+  }
+
+  /// Retrieve the list of words following a word with associated probabilities.
+  fn next_words(&self, word: Word) -> Vec<(Word, f32)> {
+    let words = self.chain.get(&word).map_or(Vec::new(), |hashmap| hashmap.iter().collect());
+    let tot = words.iter().fold(0, |tot, &(_, &count)| tot + count);
+
+    words.into_iter().map(|(word, &count)| (word.clone(), count as f32 / tot as f32)).collect()
   }
 }
 
