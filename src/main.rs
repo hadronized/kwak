@@ -13,7 +13,6 @@ use html_entities::decode_html_entities;
 use hyper::client;
 use hyper::header;
 use hyper::mime;
-use rand::Rng;
 use rand::distributions::{IndependentSample, Range};
 use regex::Regex;
 use serde_json::de;
@@ -478,7 +477,6 @@ fn read_topic(irc: &mut IRCClient) -> Option<String> {
 }
 
 fn bot_quote(irc: &mut IRCClient) {
-  let chan = irc.channel.clone();
   let between = Range::new(4, 16);
   let mut rng = rand::thread_rng();
 
