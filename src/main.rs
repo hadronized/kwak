@@ -51,10 +51,11 @@ struct IRCClient {
   tells: Tells,
   quotes_file: PathBuf,
   last_instant: Instant,
+  markov_chain: MarkovChain
 }
 
 impl IRCClient {
-  fn connect(addr: &str, port: u16, nick: &str, channel: &str, tells_file: &str, quotes_file: &str) -> Self {
+  fn connect(addr: &str, port: u16, nick: &str, channel: &str, tells_file: &str, quotes_file: &str, markov_chain: MarkovChain) -> Self {
     let stream = BufReader::new(net::TcpStream::connect((addr, port)).unwrap());
 
     IRCClient {
@@ -65,6 +66,7 @@ impl IRCClient {
       tells: read_tells(tells_file),
       quotes_file: Path::new(quotes_file).to_owned(),
       last_instant: Instant::now(),
+      markov_chain: markov_chain
     }
   }
 
@@ -78,6 +80,7 @@ impl IRCClient {
         tells: self.tells.clone(),
         quotes_file: self.quotes_file.clone(),
         last_instant: self.last_instant,
+        markov_chain: self.markov_chain.clone() // FIXME: we seriously need to fix that
       }
     }).ok()
   }
@@ -490,9 +493,9 @@ impl MarkovChain {
   }
 
   /// Add a word and its next word to the markov chain.
-  fn add_entry(&mut self, word: Word, next_word: Word) {
-    *self.chain.entry(word).or_insert(HashMap::new())
-      .entry(next_word).or_insert(0) += 1;
+  fn add_entry(&mut self, word: &str, next_word: &str) {
+    *self.chain.entry(word.to_owned()).or_insert(HashMap::new())
+      .entry(next_word.to_owned()).or_insert(0) += 1;
   }
 
   /// Retrieve the list of words following a word with associated probabilities.
@@ -536,6 +539,12 @@ fn main() {
          .value_name("FILE")
          .help("Path to the JSON file containing the quotes")
          .takes_value(true))
+    .arg(Arg::with_name("markov")
+         .short("m")
+         .long("markov")
+         .value_name("FILE")
+         .help("Path to the Markov graph")
+         .takes_value(true))
     .get_matches();
 
   let host = options.value_of("host").unwrap();
@@ -544,8 +553,29 @@ fn main() {
   let tells_file = options.value_of("tells").unwrap_or("tells.json");
   let quotes_file = options.value_of("quotes").unwrap_or("quotes.log");
 
+  // build the markov model using the log
+  let mut markov_chain = MarkovChain::new();
+
+  if let Ok(file) = File::open(quotes_file) {
+    for line in BufReader::new(file).lines() {
+      let line = line.unwrap_or(String::new());
+      let words: Vec<&str> = line.as_str().split_whitespace().collect();
+
+      if words.len() > 3 {
+        for (word, next) in (&words[2..]).iter().zip(&words[3..]) {
+          markov_chain.add_entry(word, next);
+        }
+      }
+    }
+  }
+
+  // // dump the markov chain into a file
+  // if let Ok(mut file) = File::create("/tmp/markov.txt") {
+  //   ser::to_writer_pretty(&mut file, &markov_chain.chain).unwrap();
+  // }
+
   let port = 6667;
-  let mut irc = IRCClient::connect(host, port, nick, channel, tells_file, quotes_file);
+  let mut irc = IRCClient::connect(host, port, nick, channel, tells_file, quotes_file, markov_chain);
 
   irc.init();
 
