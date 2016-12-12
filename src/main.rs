@@ -23,6 +23,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net;
 use std::path::{Path, PathBuf};
+use std::str::from_utf8;
 use std::thread;
 use std::time::{Duration, Instant};
 use time::now;
@@ -248,19 +249,20 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
     }
   }
 
+  // TODO: uncomment when ready to ship Markov
   // check whether we should say something stupid
-  if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
-    let between = Range::new(0., 1.);
-    let mut rng = rand::thread_rng();
-    let speak_prob = between.ind_sample(&mut rng);
+  //if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
+  //  let between = Range::new(0., 1.);
+  //  let mut rng = rand::thread_rng();
+  //  let speak_prob = between.ind_sample(&mut rng);
 
-    println!("speak prob: {}", speak_prob);
+  //  println!("speak prob: {}", speak_prob);
 
-    if speak_prob >= 0.9 {
-      bot_quote(irc);
-      irc.last_intervention = Instant::now();
-    }
-  }
+  //  if speak_prob >= 0.9 {
+  //    bot_quote(irc);
+  //    irc.last_intervention = Instant::now();
+  //  }
+  //}
 
   // look for URLs to scan
   let private = &args[0] == &irc.nick;
@@ -626,7 +628,20 @@ fn main() {
   if let Ok(file) = File::open(quotes_file) {
     for line in BufReader::new(file).lines() {
       let line = line.unwrap_or(String::new());
-      let words: Vec<&str> = line.as_str().split_whitespace().collect();
+      let bytes = line.as_bytes();
+
+      // convert the line to unicode
+      let decoded = match from_utf8(bytes) {
+        Ok(utf8_line) => {
+          utf8_line.to_owned()
+        },
+        Err(e) => {
+          println!("cannot decode as utf8: {:?}", e);
+          bytes.iter().map(|b| *b as char).collect()
+        }
+      };
+
+      let words: Vec<&str> = decoded.as_str().split_whitespace().collect();
 
       if words.len() > 3 {
         for (word, next) in (&words[2..]).iter().zip(&words[3..]) {
