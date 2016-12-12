@@ -21,6 +21,7 @@ use std::ascii::AsciiExt;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
+use std::iter::repeat;
 use std::net;
 use std::path::{Path, PathBuf};
 use std::str::from_utf8;
@@ -499,10 +500,13 @@ fn bot_quote(irc: &mut IRCClient) {
       break;
     }
 
-    let between = Range::new(0, next_words.len());
+    // spawn words with their frequencies so that we correctly pick up one
+    let possible_words: Vec<_> = next_words.into_iter().flat_map(|(w, f)| repeat(w).take((f * 100.) as usize).collect::<Vec<_>>()).collect();
+
+    let between = Range::new(0, possible_words.len());
     let next_word_index = between.ind_sample(&mut rng);
 
-    word = next_words[next_word_index].clone().0;
+    word = possible_words[next_word_index].clone();
     words.push(word.clone());
   }
 
