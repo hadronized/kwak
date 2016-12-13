@@ -34,6 +34,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 use time::now;
 
+const MAX_SENTENCE_WORDS_LEN: usize = 128;
+
+lazy_static!{
+  static ref RE_URL: Regex = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
+  static ref RE_TITLE: Regex = Regex::new("<title>([^<]*)</title>").unwrap();
+  static ref RE_YOUTUBE: Regex = Regex::new("https?://www\\.youtube\\.com/watch.+v=([^&?]+)").unwrap();
+  static ref RE_YOUTU_BE: Regex = Regex::new("https?://youtu\\.be/([^&?]+)").unwrap();
+}
+
 macro_rules! opt {
   ($option:expr) => {
     match $option {
@@ -41,13 +50,6 @@ macro_rules! opt {
       ::std::option::Option::None => return ::std::option::Option::None
     }
   }
-}
-
-lazy_static!{
-  static ref RE_URL: Regex = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
-  static ref RE_TITLE: Regex = Regex::new("<title>([^<]*)</title>").unwrap();
-  static ref RE_YOUTUBE: Regex = Regex::new("https?://www\\.youtube\\.com/watch.+v=([^&?]+)").unwrap();
-  static ref RE_YOUTU_BE: Regex = Regex::new("https?://youtu\\.be/([^&?]+)").unwrap();
 }
 
 // TODO: split that into IRCClient containing only IRC stuff and TellCfg or something like that for
@@ -485,20 +487,21 @@ fn read_topic(irc: &mut IRCClient) -> Option<String> {
 }
 
 fn bot_quote(irc: &mut IRCClient) {
-  let between = Range::new(4, 16);
   let mut rng = rand::thread_rng();
-
-  let quote_len = between.ind_sample(&mut rng);
-  println!("building a quote which len is {}", quote_len);
 
   // select the first word
   let between = Range::new(0, irc.markov_chain.chain.len());
   let word_index = between.ind_sample(&mut rng);
   let mut word = irc.markov_chain.chain.keys().collect::<Vec<_>>()[word_index].clone(); // FIXME: expensive you said?
 
-  let mut words: Vec<String> = Vec::with_capacity(quote_len);
+  let mut words: Vec<String> = Vec::new();
 
-  for _ in 0..quote_len {
+  loop {
+    // if we are going to long, just reset everything and retry again!
+    if words.len() >= MAX_SENTENCE_WORDS_LEN {
+      words.clear();
+    }
+
     let next_words = irc.markov_chain.next_words(&word);
 
     if next_words.is_empty() {
@@ -513,6 +516,11 @@ fn bot_quote(irc: &mut IRCClient) {
 
     word = possible_words[next_word_index].clone();
     words.push(word.clone());
+
+    // if that word has a very high terminal probability, stop here
+    if irc.markov_chain.prob_last(&word) >= 0.8 {
+      break;
+    }
   }
 
   irc.say(&words.join(" "), None);
@@ -628,6 +636,16 @@ impl MarkovChain {
   fn seen_last(&mut self, word: &str) {
     self.chain.entry(word.to_owned()).or_insert(WordState::new_with_count(1))
       .count_last += 1;
+  }
+
+  // /// Get the probability that this word is met at the beginning of a line.
+  // fn prob_first(&self, word: &str) -> f32 {
+  //   self.chain.get(word).map_or(0., |word_st| word_st.count_first as f32 / word_st.count as f32)
+  // }
+
+  /// Get the probability that this word is met at the end of a line.
+  fn prob_last(&self, word: &str) -> f32 {
+    self.chain.get(word).map_or(0., |word_st| word_st.count_last as f32 / word_st.count as f32)
   }
 }
 
