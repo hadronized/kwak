@@ -245,7 +245,7 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
     
     if words.len() > 1 {
       for (word, next) in words.iter().zip(&words[1..]) {
-        irc.markov_chain.add_entry(word, next);
+        irc.markov_chain.account_next(word, next);
       }
     }
   }
@@ -553,8 +553,27 @@ fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
 type Word = String;
 
 #[derive(Clone, Debug)]
+struct WordState {
+  count: u32, // number of times this word was seen at all
+  count_first: u32, // number of times this word was seen as first word of a sentence
+  count_last: u32, // number of times this word was seen as last word of a sentence
+  next_words: HashMap<Word, u32> // next word with associated counts
+}
+
+impl WordState {
+  fn new() -> Self {
+    WordState {
+      count: 1,
+      count_first: 0,
+      count_last: 0,
+      next_words: HashMap::new()
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
 struct MarkovChain {
-  chain: HashMap<Word, HashMap<Word, u32>>, // (next_word, count)
+  chain: HashMap<Word, WordState>, // (next_word, count)
 }
 
 impl MarkovChain {
@@ -565,15 +584,15 @@ impl MarkovChain {
     }
   }
 
-  /// Add a word and its next word to the markov chain.
-  fn add_entry(&mut self, word: &str, next_word: &str) {
-    *self.chain.entry(word.to_owned()).or_insert(HashMap::new())
-      .entry(next_word.to_owned()).or_insert(0) += 1;
+  /// Take into account a next word for a given word.
+  fn account_next(&mut self, word: &str, next_word: &str) {
+    *self.chain.entry(word.to_owned()).or_insert(WordState::new())
+      .next_words.entry(next_word.to_owned()).or_insert(0) += 1;
   }
 
   /// Retrieve the list of words following a word with associated probabilities.
   fn next_words(&self, word: &str) -> Vec<(Word, f32)> {
-    let words = self.chain.get(word).map_or(Vec::new(), |hashmap| hashmap.iter().collect());
+    let words = self.chain.get(word).map_or(Vec::new(), |word_st| word_st.next_words.iter().collect());
     let tot = words.iter().fold(0, |tot, &(_, &count)| tot + count);
 
     words.into_iter().map(|(word, &count)| (word.clone(), count as f32 / tot as f32)).collect()
@@ -649,7 +668,7 @@ fn main() {
 
       if words.len() > 3 {
         for (word, next) in (&words[2..]).iter().zip(&words[3..]) {
-          markov_chain.add_entry(word, next);
+          markov_chain.account_next(word, next);
         }
       }
     }
