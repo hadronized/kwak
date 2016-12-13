@@ -1,3 +1,5 @@
+#![feature(proc_macro)]
+
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;
@@ -5,6 +7,9 @@ extern crate html_entities;
 extern crate hyper;
 extern crate rand;
 extern crate regex;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 extern crate serde_json;
 extern crate time;
 
@@ -552,7 +557,7 @@ fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
 
 type Word = String;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct WordState {
   count: u32, // number of times this word was seen at all
   count_first: u32, // number of times this word was seen as first word of a sentence
@@ -563,7 +568,16 @@ struct WordState {
 impl WordState {
   fn new() -> Self {
     WordState {
-      count: 1,
+      count: 0,
+      count_first: 0,
+      count_last: 0,
+      next_words: HashMap::new()
+    }
+  }
+
+  fn new_with_count(count: u32) -> Self {
+    WordState {
+      count: count,
       count_first: 0,
       count_last: 0,
       next_words: HashMap::new()
@@ -596,6 +610,24 @@ impl MarkovChain {
     let tot = words.iter().fold(0, |tot, &(_, &count)| tot + count);
 
     words.into_iter().map(|(word, &count)| (word.clone(), count as f32 / tot as f32)).collect()
+  }
+
+  /// Call that function when you see a word, whatever the word place is in the sentence.
+  fn seen(&mut self, word: &str) {
+    self.chain.entry(word.to_owned()).or_insert(WordState::new())
+      .count += 1;
+  }
+
+  /// Call that function when you see a word at the beginning of a sentence.
+  fn seen_first(&mut self, word: &str) {
+    self.chain.entry(word.to_owned()).or_insert(WordState::new_with_count(1))
+      .count_first += 1;
+  }
+
+  /// Call that function when you see a word at the end of a sentence.
+  fn seen_last(&mut self, word: &str) {
+    self.chain.entry(word.to_owned()).or_insert(WordState::new_with_count(1))
+      .count_last += 1;
   }
 }
 
@@ -666,18 +698,28 @@ fn main() {
 
       let words: Vec<&str> = decoded.as_str().split_whitespace().collect();
 
-      if words.len() > 3 {
-        for (word, next) in (&words[2..]).iter().zip(&words[3..]) {
-          markov_chain.account_next(word, next);
+      // if there’s at least one word (time nick word...)
+      if words.len() > 2 {
+        markov_chain.seen(&words[2]);
+        markov_chain.seen_first(&words[2]);
+
+        // if there’s at least two words (time nick word next...)
+        if words.len() > 3 {
+          for (word, next) in (&words[2..]).iter().zip(&words[3..]) {
+            markov_chain.account_next(word, next);
+            markov_chain.seen(next);
+          }
         }
+
+        markov_chain.seen_last(&words[words.len()-1]);
       }
     }
   }
 
-  // // dump the markov chain into a file
-  // if let Ok(mut file) = File::create("/tmp/markov.txt") {
-  //   ser::to_writer_pretty(&mut file, &markov_chain.chain).unwrap();
-  // }
+  // dump the markov chain into a file
+  if let Ok(mut file) = File::create("/tmp/markov.txt") {
+    ser::to_writer_pretty(&mut file, &markov_chain.chain).unwrap();
+  }
 
   let port = 6667;
   let mut irc = IRCClient::connect(host, port, nick, channel, tells_file, quotes_file, markov_chain);
