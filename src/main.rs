@@ -170,7 +170,6 @@ fn is_ping(msg: &str) -> bool {
 
 fn extract_user_msg(msg: &str) -> Option<(Nick, Cmd, Vec<String>)> {
   if !msg.starts_with(":") {
-    println!("a");
     return None;
   }
 
@@ -434,7 +433,6 @@ fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
     },
     "!q" if msg.len() == 2 => {
       // nothing to do; just ask for a uber cool quote!
-      println!("!q {:?}", &msg[1]);
       let word = msg[1].to_owned();
       Some(Order::BotQuote(word))
     },
@@ -585,7 +583,8 @@ struct WordState {
   count: u32, // number of times this word was seen at all
   count_first: u32, // number of times this word was seen as first word of a sentence
   count_last: u32, // number of times this word was seen as last word of a sentence
-  next_words: HashMap<Word, u32> // next word with associated counts
+  next_words: HashMap<Word, u32>, // next word with associated counts
+  prev_words: HashMap<Word, u32> // previous word with associated counts
 }
 
 impl WordState {
@@ -594,7 +593,8 @@ impl WordState {
       count: 0,
       count_first: 0,
       count_last: 0,
-      next_words: HashMap::new()
+      next_words: HashMap::new(),
+      prev_words: HashMap::new(),
     }
   }
 
@@ -603,7 +603,8 @@ impl WordState {
       count: count,
       count_first: 0,
       count_last: 0,
-      next_words: HashMap::new()
+      next_words: HashMap::new(),
+      prev_words: HashMap::new()
     }
   }
 }
@@ -621,15 +622,71 @@ impl MarkovChain {
     }
   }
 
+  /// Create a new Markov chain from a `BufRead` value.
+  fn from_buf_read<R>(buf_read: &mut R) -> Self where R: BufRead {
+    let mut markov_chain = Self::new();
+
+    for line in buf_read.lines() {
+      let line = line.unwrap_or(String::new());
+      let bytes = line.as_bytes();
+
+      // convert the line to unicode
+      let decoded = match from_utf8(bytes) {
+        Ok(utf8_line) => {
+          utf8_line.to_owned()
+        },
+        Err(e) => {
+          println!("cannot decode as utf8: {:?}", e);
+          bytes.iter().map(|b| *b as char).collect()
+        }
+      };
+
+      let words: Vec<&str> = decoded.as_str().split_whitespace().collect();
+
+      // if there’s at least one word (time nick word...)
+      if words.len() > 2 {
+        markov_chain.seen(&words[2]);
+        markov_chain.seen_first(&words[2]);
+
+        // if there’s at least two words (time nick word next...)
+        if words.len() > 3 {
+          for (word, next) in (&words[2..]).iter().zip(&words[3..]) {
+            markov_chain.account_next(word, next);
+            markov_chain.account_prev(word, next);
+            markov_chain.seen(next);
+          }
+        }
+
+        markov_chain.seen_last(&words[words.len()-1]);
+      }
+    }
+
+    markov_chain
+  }
+
   /// Take into account a next word for a given word.
   fn account_next(&mut self, word: &str, next_word: &str) {
     *self.chain.entry(word.to_owned()).or_insert(WordState::new())
       .next_words.entry(next_word.to_owned()).or_insert(0) += 1;
   }
 
+  /// Take into account a previous word for a given word.
+  fn account_prev(&mut self, word: &str, prev_word: &str) {
+    *self.chain.entry(word.to_owned()).or_insert(WordState::new())
+      .prev_words.entry(prev_word.to_owned()).or_insert(0) += 1;
+  }
+
   /// Retrieve the list of words following a word with associated probabilities.
   fn next_words(&self, word: &str) -> Vec<(Word, f32)> {
     let words = self.chain.get(word).map_or(Vec::new(), |word_st| word_st.next_words.iter().collect());
+    let tot = words.iter().fold(0, |tot, &(_, &count)| tot + count);
+
+    words.into_iter().map(|(word, &count)| (word.clone(), count as f32 / tot as f32)).collect()
+  }
+
+  /// Retrieve the list of words preceding a word with associated probabilities.
+  fn prev_words(&self, word: &str) -> Vec<(Word, f32)> {
+    let words = self.chain.get(word).map_or(Vec::new(), |word_st| word_st.prev_words.iter().collect());
     let tot = words.iter().fold(0, |tot, &(_, &count)| tot + count);
 
     words.into_iter().map(|(word, &count)| (word.clone(), count as f32 / tot as f32)).collect()
@@ -711,43 +768,13 @@ fn main() {
   let quotes_file = options.value_of("quotes").unwrap_or("quotes.log");
 
   // build the markov model using the log
-  let mut markov_chain = MarkovChain::new();
-
-  if let Ok(file) = File::open(quotes_file) {
-    for line in BufReader::new(file).lines() {
-      let line = line.unwrap_or(String::new());
-      let bytes = line.as_bytes();
-
-      // convert the line to unicode
-      let decoded = match from_utf8(bytes) {
-        Ok(utf8_line) => {
-          utf8_line.to_owned()
-        },
-        Err(e) => {
-          println!("cannot decode as utf8: {:?}", e);
-          bytes.iter().map(|b| *b as char).collect()
-        }
-      };
-
-      let words: Vec<&str> = decoded.as_str().split_whitespace().collect();
-
-      // if there’s at least one word (time nick word...)
-      if words.len() > 2 {
-        markov_chain.seen(&words[2]);
-        markov_chain.seen_first(&words[2]);
-
-        // if there’s at least two words (time nick word next...)
-        if words.len() > 3 {
-          for (word, next) in (&words[2..]).iter().zip(&words[3..]) {
-            markov_chain.account_next(word, next);
-            markov_chain.seen(next);
-          }
-        }
-
-        markov_chain.seen_last(&words[words.len()-1]);
-      }
-    }
-  }
+  let markov_chain = if let Ok(file) = File::open(quotes_file) {
+    let mut file = BufReader::new(file);
+    MarkovChain::from_buf_read(&mut file)
+  } else {
+    println!("\x1b[31mno Markov data! learning from nothing\x1b[0m");
+    MarkovChain::new()
+  };
 
   // dump the markov chain into a file
   if let Ok(mut file) = File::create("/tmp/markov.txt") {
