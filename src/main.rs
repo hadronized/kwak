@@ -36,8 +36,8 @@ use time::now;
 
 const MAX_SENTENCE_WORDS_LEN: usize = 64;
 const MAX_TRIES: usize = 100;
-const FIRST_PROB_THRESHOLD: f32 = 0.8;
-const LAST_PROB_THRESHOLD: f32 = 0.8;
+const FIRST_PROB_THRESHOLD: f32 = 0.5;
+const LAST_PROB_THRESHOLD: f32 = 0.5;
 
 lazy_static!{
   static ref RE_URL: Regex = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
