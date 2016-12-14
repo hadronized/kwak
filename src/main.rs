@@ -253,9 +253,16 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
     let words = &args[1..];
     
     if words.len() > 1 {
+      irc.markov_chain.seen(&words[0]);
+      irc.markov_chain.seen_first(&words[0]);
+
       for (word, next) in words.iter().zip(&words[1..]) {
+        irc.markov_chain.seen(next);
         irc.markov_chain.account_next(word, next);
+        irc.markov_chain.account_prev(word, next);
       }
+
+      irc.markov_chain.seen_last(&words[words.len()-1]);
     }
   }
 
