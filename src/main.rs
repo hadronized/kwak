@@ -23,7 +23,7 @@ use regex::Regex;
 use serde_json::de;
 use serde_json::ser;
 use std::ascii::AsciiExt;
-use std::collections::HashMap;
+use std::collections::{HashMap, LinkedList};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::iter::repeat;
@@ -34,7 +34,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 use time::now;
 
-const MAX_SENTENCE_WORDS_LEN: usize = 128;
+const MAX_SENTENCE_WORDS_LEN: usize = 64;
+const MAX_TRIES: usize = 100;
+const FIRST_PROB_THRESHOLD: f32 = 0.8;
+const LAST_PROB_THRESHOLD: f32 = 0.8;
 
 lazy_static!{
   static ref RE_URL: Regex = Regex::new("(^|\\s+)https?://[^ ]+\\.[^ ]+").unwrap();
@@ -490,50 +493,92 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
   // select the first word
   let between = Range::new(0, ctx_words.len());
   let word_index = between.ind_sample(&mut rng);
-  let mut word = ctx_words[word_index].clone();
+  let mut next_word = ctx_words[word_index].clone();
+  let mut prev_word = ctx_words[word_index].clone();
+  let (mut hit_first, mut hit_last) = (false, false);
 
-  let mut words: Vec<String> = Vec::new();
-  words.push(word.clone());
+  let mut words: LinkedList<String> = LinkedList::new();
+  words.push_front(ctx_words[word_index].clone());
 
   let mut try_nb = 0;
   loop {
-    // if we are going to long, just reset everything and retry again!
-    if words.len() >= MAX_SENTENCE_WORDS_LEN {
-      println!("exhausted words with: « {} »", words.join(" "));
-
+    if try_nb >= MAX_TRIES {
+      println!("dammit: {}", try_nb);
       words.clear();
-      word = ctx_words[word_index].clone();
-
-      // break after the third attempt because we’re just taking too fucking long
-      try_nb += 1;
-      if try_nb == 3 {
-        break;
-      }
-    }
-
-    let next_words = irc.markov_chain.next_words(&word);
-
-    if next_words.is_empty() {
-      println!("no words exist after {}", word);
       break;
     }
 
-    // spawn words with their frequencies so that we correctly pick up one
-    let possible_words: Vec<_> = next_words.into_iter().flat_map(|(w, f)| repeat(w).take((f * 100.) as usize).collect::<Vec<_>>()).collect();
+    if words.len() >= MAX_SENTENCE_WORDS_LEN {
+      println!("exhausted words");
 
-    let between = Range::new(0, possible_words.len());
-    let next_word_index = between.ind_sample(&mut rng);
+      hit_first = false;
+      hit_last = false;
+      next_word = ctx_words[word_index].clone();
+      prev_word = ctx_words[word_index].clone();
+      words.clear();
+      words.push_front(ctx_words[word_index].clone());
 
-    word = possible_words[next_word_index].clone();
-    words.push(word.clone());
+      try_nb += 1;
+    }
 
-    // if that word has a very high terminal probability, stop here
-    if irc.markov_chain.prob_last(&word) >= 0.8 {
+    let next_words = irc.markov_chain.next_words(&next_word);
+    let prev_words = irc.markov_chain.prev_words(&prev_word);
+
+    if next_words.is_empty() && irc.markov_chain.prob_last(&next_word) <= LAST_PROB_THRESHOLD {
+      // we cannot go on, so just throw the word away and try with another one
+      next_word = words.pop_back().unwrap_or(ctx_words[word_index].clone());
+      try_nb += 1;
+      continue;
+    }
+    
+    if prev_words.is_empty() && irc.markov_chain.prob_first(&prev_word) <= FIRST_PROB_THRESHOLD {
+      // we cannot go on, so just throw the word away and try with another one
+      prev_word = words.pop_front().unwrap_or(ctx_words[word_index].clone());
+      try_nb += 1;
+      continue;
+    }
+
+    // take the next word if we haven’t found the last word of the sentence yet
+    if !hit_last {
+      // spawn words with their frequencies so that we correctly pick up one
+      let possible_words: Vec<_> = next_words.into_iter().flat_map(|(w, f)| repeat(w).take((f * 100.) as usize).collect::<Vec<_>>()).collect();
+
+      let between = Range::new(0, possible_words.len());
+      let next_word_index = between.ind_sample(&mut rng);
+
+      next_word = possible_words[next_word_index].clone();
+      words.push_back(next_word.clone());
+
+      // if that word has a very high terminal probability, stop appending
+      if irc.markov_chain.prob_last(&next_word) >= LAST_PROB_THRESHOLD {
+        hit_last = true;
+      }
+    }
+
+    // take the previous word if we haven’t found the first word of the sentence yet
+    if !hit_first {
+      // spawn words with their frequencies so that we correctly pick up one
+      let possible_words: Vec<_> = prev_words.into_iter().flat_map(|(w, f)| repeat(w).take((f * 100.) as usize).collect::<Vec<_>>()).collect();
+
+      let between = Range::new(0, possible_words.len());
+      let prev_word_index = between.ind_sample(&mut rng);
+
+      prev_word = possible_words[prev_word_index].clone();
+      words.push_front(prev_word.clone());
+
+      // if that word has a very high terminal probability, stop appending
+      if irc.markov_chain.prob_first(&prev_word) >= FIRST_PROB_THRESHOLD {
+        hit_first = true;
+      }
+    }
+
+    if hit_first && hit_last {
       break;
     }
   }
 
   if !words.is_empty() {
+    let words: Vec<String> = words.into_iter().collect();
     irc.say(&words.join(" "), None);
     irc.last_intervention = Instant::now();
   }
@@ -710,10 +755,10 @@ impl MarkovChain {
       .count_last += 1;
   }
 
-  // /// Get the probability that this word is met at the beginning of a line.
-  // fn prob_first(&self, word: &str) -> f32 {
-  //   self.chain.get(word).map_or(0., |word_st| word_st.count_first as f32 / word_st.count as f32)
-  // }
+  /// Get the probability that this word is met at the beginning of a line.
+  fn prob_first(&self, word: &str) -> f32 {
+    self.chain.get(word).map_or(0., |word_st| word_st.count_first as f32 / word_st.count as f32)
+  }
 
   /// Get the probability that this word is met at the end of a line.
   fn prob_last(&self, word: &str) -> f32 {
