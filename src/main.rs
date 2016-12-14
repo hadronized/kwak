@@ -258,17 +258,17 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
   }
 
   // check whether we should say something stupid
-  if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
-    let between = Range::new(0., 1.);
-    let mut rng = rand::thread_rng();
-    let speak_prob = between.ind_sample(&mut rng);
+  //if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
+  //  let between = Range::new(0., 1.);
+  //  let mut rng = rand::thread_rng();
+  //  let speak_prob = between.ind_sample(&mut rng);
 
-    println!("speak prob: {}", speak_prob);
+  //  println!("speak prob: {}", speak_prob);
 
-    if speak_prob >= 0.95 {
-      bot_quote(irc, &args[1..]);
-    }
-  }
+  //  if speak_prob >= 0.95 {
+  //    bot_quote(irc, &args[1..]);
+  //  }
+  //}
 
   // look for URLs to scan
   let private = &args[0] == &irc.nick;
