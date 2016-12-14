@@ -228,7 +228,7 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
     Some(Order::Tell(from, to, content)) => add_tell(irc, from, to, content),
     Some(Order::PrependTopic(topic)) => prepend_topic(irc, topic),
     Some(Order::ResetTopic(topic)) => reset_topic(irc, topic),
-    Some(Order::BotQuote(word)) => bot_quote(irc, &[word]),
+    Some(Order::BotQuote(words)) => bot_quote(irc, &words),
     None => {
       // someone just said something, and it’s not an order, see whether we should say something
       if let Some(msgs) = irc.tells.get(&nick.to_ascii_lowercase()).cloned() {
@@ -434,10 +434,10 @@ fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
       let content = msg[1..].join(" ");
       Some(Order::ResetTopic(content))
     },
-    "!q" if msg.len() == 2 => {
+    "!q" if msg.len() >= 2 => {
       // nothing to do; just ask for a uber cool quote!
-      let word = msg[1].to_owned();
-      Some(Order::BotQuote(word))
+      let words = (&msg[1..]).to_owned();
+      Some(Order::BotQuote(words))
     },
     _ => None
   }
@@ -490,15 +490,22 @@ fn read_topic(irc: &mut IRCClient) -> Option<String> {
 fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
   let mut rng = rand::thread_rng();
 
-  // select the first word
-  let between = Range::new(0, ctx_words.len());
-  let word_index = between.ind_sample(&mut rng);
-  let mut next_word = ctx_words[word_index].clone();
-  let mut prev_word = ctx_words[word_index].clone();
-  let (mut hit_first, mut hit_last) = (false, false);
+  let first_word = ctx_words[0].clone();
+  let last_word = ctx_words[ctx_words.len()-1].clone();
+
+  let mut prev_word = first_word.clone();
+  let mut next_word = last_word.clone();
 
   let mut words: LinkedList<String> = LinkedList::new();
-  words.push_front(ctx_words[word_index].clone());
+
+  if ctx_words.len() > 1 {
+    words.push_front(first_word.clone());
+    words.push_back(last_word.clone());
+  } else {
+    words.push_front(first_word.clone());
+  }
+
+  let (mut hit_first, mut hit_last) = (false, false);
 
   let mut try_nb = 0;
   loop {
@@ -513,10 +520,16 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
 
       hit_first = false;
       hit_last = false;
-      next_word = ctx_words[word_index].clone();
-      prev_word = ctx_words[word_index].clone();
+      prev_word = first_word.clone();
+      next_word = last_word.clone();
+
       words.clear();
-      words.push_front(ctx_words[word_index].clone());
+      if ctx_words.len() > 1 {
+        words.push_front(first_word.clone());
+        words.push_back(last_word.clone());
+      } else {
+        words.push_front(first_word.clone());
+      }
 
       try_nb += 1;
     }
@@ -526,14 +539,14 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
 
     if next_words.is_empty() && irc.markov_chain.prob_last(&next_word) <= LAST_PROB_THRESHOLD {
       // we cannot go on, so just throw the word away and try with another one
-      next_word = words.pop_back().unwrap_or(ctx_words[word_index].clone());
+      next_word = words.pop_back().unwrap_or(last_word.clone());
       try_nb += 1;
       continue;
     }
     
     if prev_words.is_empty() && irc.markov_chain.prob_first(&prev_word) <= FIRST_PROB_THRESHOLD {
       // we cannot go on, so just throw the word away and try with another one
-      prev_word = words.pop_front().unwrap_or(ctx_words[word_index].clone());
+      prev_word = words.pop_front().unwrap_or(first_word.clone());
       try_nb += 1;
       continue;
     }
@@ -590,7 +603,7 @@ enum Order {
   Tell(Nick, Nick, String),
   PrependTopic(String),
   ResetTopic(String),
-  BotQuote(String)
+  BotQuote(Vec<String>)
 }
 
 type Nick = String;
