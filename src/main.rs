@@ -265,7 +265,7 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
 
     println!("speak prob: {}", speak_prob);
 
-    if speak_prob >= 0.9 {
+    if speak_prob >= 0.95 {
       bot_quote(irc, &args[1..]);
     }
   }
