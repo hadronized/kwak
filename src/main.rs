@@ -226,7 +226,7 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
     Some(Order::Tell(from, to, content)) => add_tell(irc, from, to, content),
     Some(Order::PrependTopic(topic)) => prepend_topic(irc, topic),
     Some(Order::ResetTopic(topic)) => reset_topic(irc, topic),
-    Some(Order::BotQuote) => bot_quote(irc),
+    Some(Order::BotQuote(word)) => bot_quote(irc, &[word]),
     None => {
       // someone just said something, and it’s not an order, see whether we should say something
       if let Some(msgs) = irc.tells.get(&nick.to_ascii_lowercase()).cloned() {
@@ -257,20 +257,18 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
     }
   }
 
-  // TODO: uncomment when ready to ship Markov
   // check whether we should say something stupid
-  //if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
-  //  let between = Range::new(0., 1.);
-  //  let mut rng = rand::thread_rng();
-  //  let speak_prob = between.ind_sample(&mut rng);
+  if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
+    let between = Range::new(0., 1.);
+    let mut rng = rand::thread_rng();
+    let speak_prob = between.ind_sample(&mut rng);
 
-  //  println!("speak prob: {}", speak_prob);
+    println!("speak prob: {}", speak_prob);
 
-  //  if speak_prob >= 0.9 {
-  //    bot_quote(irc);
-  //    irc.last_intervention = Instant::now();
-  //  }
-  //}
+    if speak_prob >= 0.9 {
+      bot_quote(irc, &args[1..]);
+    }
+  }
 
   // look for URLs to scan
   let private = &args[0] == &irc.nick;
@@ -434,9 +432,11 @@ fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
       let content = msg[1..].join(" ");
       Some(Order::ResetTopic(content))
     },
-    "!q" if msg.len() == 1 => {
+    "!q" if msg.len() == 2 => {
       // nothing to do; just ask for a uber cool quote!
-      Some(Order::BotQuote)
+      println!("!q {:?}", &msg[1]);
+      let word = msg[1].to_owned();
+      Some(Order::BotQuote(word))
     },
     _ => None
   }
@@ -486,25 +486,37 @@ fn read_topic(irc: &mut IRCClient) -> Option<String> {
   })
 }
 
-fn bot_quote(irc: &mut IRCClient) {
+fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
   let mut rng = rand::thread_rng();
 
   // select the first word
-  let between = Range::new(0, irc.markov_chain.chain.len());
+  let between = Range::new(0, ctx_words.len());
   let word_index = between.ind_sample(&mut rng);
-  let mut word = irc.markov_chain.chain.keys().collect::<Vec<_>>()[word_index].clone(); // FIXME: expensive you said?
+  let mut word = ctx_words[word_index].clone();
 
   let mut words: Vec<String> = Vec::new();
+  words.push(word.clone());
 
+  let mut try_nb = 0;
   loop {
     // if we are going to long, just reset everything and retry again!
     if words.len() >= MAX_SENTENCE_WORDS_LEN {
+      println!("exhausted words with: « {} »", words.join(" "));
+
       words.clear();
+      word = ctx_words[word_index].clone();
+
+      // break after the third attempt because we’re just taking too fucking long
+      try_nb += 1;
+      if try_nb == 3 {
+        break;
+      }
     }
 
     let next_words = irc.markov_chain.next_words(&word);
 
     if next_words.is_empty() {
+      println!("no words exist after {}", word);
       break;
     }
 
@@ -523,7 +535,10 @@ fn bot_quote(irc: &mut IRCClient) {
     }
   }
 
-  irc.say(&words.join(" "), None);
+  if !words.is_empty() {
+    irc.say(&words.join(" "), None);
+    irc.last_intervention = Instant::now();
+  }
 }
 
 #[derive(Debug)]
@@ -532,7 +547,7 @@ enum Order {
   Tell(Nick, Nick, String),
   PrependTopic(String),
   ResetTopic(String),
-  BotQuote
+  BotQuote(String)
 }
 
 type Nick = String;
