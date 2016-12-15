@@ -521,12 +521,7 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
       next_word = last_word.clone();
 
       words.clear();
-      if ctx_words.len() > 1 {
-        words.push_front(first_word.clone());
-        words.push_back(last_word.clone());
-      } else {
-        words.push_front(first_word.clone());
-      }
+      words = ctx_words.iter().cloned().collect();
 
       hit_first = false;
       hit_last = false;
