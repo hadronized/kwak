@@ -267,17 +267,17 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
   }
 
   // check whether we should say something stupid
-  //if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
-  //  let between = Range::new(0., 1.);
-  //  let mut rng = rand::thread_rng();
-  //  let speak_prob = between.ind_sample(&mut rng);
+  if irc.last_intervention.elapsed() >= Duration::from_secs(10) {
+    let between = Range::new(0., 1.);
+    let mut rng = rand::thread_rng();
+    let speak_prob = between.ind_sample(&mut rng);
 
-  //  println!("speak prob: {}", speak_prob);
+    println!("speak prob: {}", speak_prob);
 
-  //  if speak_prob >= 0.95 {
-  //    bot_quote(irc, &args[1..]);
-  //  }
-  //}
+    if speak_prob >= 0.98 {
+      bot_quote(irc, &args[1..]);
+    }
+  }
 
   // look for URLs to scan
   let private = &args[0] == &irc.nick;
@@ -552,6 +552,12 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
       // spawn words with their frequencies so that we correctly pick up one
       let possible_words: Vec<_> = next_words.into_iter().flat_map(|(w, f)| repeat(w).take((f * 100.) as usize).collect::<Vec<_>>()).collect();
 
+      // FIXME
+      if possible_words.len() == 0 {
+        try_nb += 1;
+        continue;
+      }
+
       let between = Range::new(0, possible_words.len());
       let next_word_index = between.ind_sample(&mut rng);
 
@@ -575,6 +581,12 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
 
       // spawn words with their frequencies so that we correctly pick up one
       let possible_words: Vec<_> = prev_words.into_iter().flat_map(|(w, f)| repeat(w).take((f * 100.) as usize).collect::<Vec<_>>()).collect();
+
+      // FIXME
+      if possible_words.len() == 0 {
+        try_nb += 1;
+        continue;
+      }
 
       let between = Range::new(0, possible_words.len());
       let prev_word_index = between.ind_sample(&mut rng);
