@@ -503,21 +503,13 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
   let mut prev_word = first_word.clone();
   let mut next_word = last_word.clone();
 
-  let mut words: LinkedList<String> = LinkedList::new();
-
-  if ctx_words.len() > 1 {
-    words.push_front(first_word.clone());
-    words.push_back(last_word.clone());
-  } else {
-    words.push_front(first_word.clone());
-  }
+  let mut words: LinkedList<_> = ctx_words.iter().cloned().collect();
 
   let (mut hit_first, mut hit_last) = (false, false);
 
   let mut try_nb = 0;
   loop {
     if try_nb >= MAX_TRIES {
-      println!("dammit: {}", try_nb);
       words.clear();
       break;
     }
@@ -525,8 +517,6 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
     if words.len() >= MAX_SENTENCE_WORDS_LEN {
       println!("exhausted words");
 
-      hit_first = false;
-      hit_last = false;
       prev_word = first_word.clone();
       next_word = last_word.clone();
 
@@ -538,28 +528,32 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
         words.push_front(first_word.clone());
       }
 
+      hit_first = false;
+      hit_last = false;
+
       try_nb += 1;
     }
+
 
     let next_words = irc.markov_chain.next_words(&next_word);
-    let prev_words = irc.markov_chain.prev_words(&prev_word);
-
-    if next_words.is_empty() && irc.markov_chain.prob_last(&next_word) <= LAST_PROB_THRESHOLD {
-      // we cannot go on, so just throw the word away and try with another one
-      next_word = words.pop_back().unwrap_or(last_word.clone());
-      try_nb += 1;
-      continue;
+    if irc.markov_chain.prob_last(&next_word) >= LAST_PROB_THRESHOLD {
+      hit_last = true;
     }
-    
-    if prev_words.is_empty() && irc.markov_chain.prob_first(&prev_word) <= FIRST_PROB_THRESHOLD {
-      // we cannot go on, so just throw the word away and try with another one
-      prev_word = words.pop_front().unwrap_or(first_word.clone());
-      try_nb += 1;
-      continue;
+
+    let prev_words = irc.markov_chain.prev_words(&prev_word);
+    if irc.markov_chain.prob_first(&prev_word) >= FIRST_PROB_THRESHOLD {
+      hit_first = true;
     }
 
     // take the next word if we haven’t found the last word of the sentence yet
     if !hit_last {
+      if next_words.is_empty() {
+        // no more words and we’re not satisfied with the word we have; just go back
+        next_word = words.pop_back().unwrap_or(last_word.clone());
+        try_nb += 1;
+        continue;
+      }
+
       // spawn words with their frequencies so that we correctly pick up one
       let possible_words: Vec<_> = next_words.into_iter().flat_map(|(w, f)| repeat(w).take((f * 100.) as usize).collect::<Vec<_>>()).collect();
 
@@ -577,6 +571,13 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
 
     // take the previous word if we haven’t found the first word of the sentence yet
     if !hit_first {
+      if prev_words.is_empty() {
+        // no more words and we’re not satisfied with the word we have; just go back
+        prev_word = words.pop_front().unwrap_or(first_word.clone());
+        try_nb += 1;
+        continue;
+      }
+
       // spawn words with their frequencies so that we correctly pick up one
       let possible_words: Vec<_> = prev_words.into_iter().flat_map(|(w, f)| repeat(w).take((f * 100.) as usize).collect::<Vec<_>>()).collect();
 
@@ -600,8 +601,11 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
   if !words.is_empty() {
     let words: Vec<String> = words.into_iter().collect();
     irc.say(&words.join(" "), None);
-    irc.last_intervention = Instant::now();
+  } else {
+    irc.say("\x037I need to learn more!\x037\x0F", None);
   }
+
+  irc.last_intervention = Instant::now();
 }
 
 #[derive(Debug)]
