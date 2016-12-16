@@ -608,11 +608,8 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
   if !words.is_empty() {
     let words: Vec<String> = words.into_iter().collect();
     irc.say(&words.join(" "), None);
-  } else {
-    irc.say("\x037I need to learn more!\x037\x0F", None);
+    irc.last_intervention = Instant::now();
   }
-
-  irc.last_intervention = Instant::now();
 }
 
 #[derive(Debug)]
