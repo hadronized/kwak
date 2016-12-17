@@ -34,6 +34,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use time::now;
 
+const MIN_MS_BETWEEN_SAYS: u64 = 500;
 const MAX_SENTENCE_WORDS_LEN: usize = 64;
 const MAX_TRIES: usize = 100;
 const FIRST_PROB_THRESHOLD: f32 = 0.5;
@@ -64,7 +65,7 @@ struct IRCClient {
   channel: String,
   tells: Tells,
   quotes_file: PathBuf,
-  last_instant: Instant,
+  last_say_instant: Instant,
   markov_chain: MarkovChain,
   last_intervention: Instant
 }
@@ -80,7 +81,7 @@ impl IRCClient {
       channel: channel.to_owned(),
       tells: read_tells(tells_file),
       quotes_file: Path::new(quotes_file).to_owned(),
-      last_instant: Instant::now(),
+      last_say_instant: Instant::now(),
       markov_chain: markov_chain,
       last_intervention: Instant::now()
     }
@@ -95,7 +96,7 @@ impl IRCClient {
         channel: self.channel.clone(),
         tells: self.tells.clone(),
         quotes_file: self.quotes_file.clone(),
-        last_instant: self.last_instant,
+        last_say_instant: self.last_say_instant,
         markov_chain: self.markov_chain.clone(), // FIXME: we seriously need to fix that
         last_intervention: self.last_intervention.clone()
       }
@@ -139,8 +140,8 @@ impl IRCClient {
   }
 
   fn say(&mut self, msg: &str, priv_user: Option<&str>) {
-    if self.last_instant.elapsed() >= Duration::from_millis(500) {
-      self.last_instant = Instant::now();
+    if self.last_say_instant.elapsed() >= Duration::from_millis(MIN_MS_BETWEEN_SAYS) {
+      self.last_say_instant = Instant::now();
       let header = "PRIVMSG ".to_owned();
 
       match priv_user {
