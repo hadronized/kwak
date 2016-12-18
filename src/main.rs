@@ -56,22 +56,20 @@ macro_rules! opt {
   }
 }
 
-// TODO: split that into IRCClient containing only IRC stuff and TellCfg or something like that for
-// tells as we don’t want to carry them around all the fucking place
-struct IRCClient {
+/// IRC client.
+struct IRC {
   stream: BufReader<net::TcpStream>,
   line_buf: String,
   nick: String,
   channel: String,
-  tells: Tells,
-  quotes_file: PathBuf,
   last_say_instant: Instant,
-  markov_chain: MarkovChain,
-  last_intervention: Instant
+  log_path: PathBuf,
 }
 
-impl IRCClient {
-  fn connect(addr: &str, port: u16, nick: &str, channel: &str, tells_file: &str, quotes_file: &str, markov_chain: MarkovChain) -> Self {
+impl IRC {
+  /// Connect to an IRC server with a given name, then join the given channel. All messages will be
+  /// registered to the given log path.
+  fn connect(addr: &str, port: u16, nick: &str, channel: &str, log_path: &str) -> Self {
     let stream = BufReader::new(net::TcpStream::connect((addr, port)).unwrap());
 
     IRCClient {
@@ -79,14 +77,13 @@ impl IRCClient {
       line_buf: String::with_capacity(1024),
       nick: nick.to_owned(),
       channel: channel.to_owned(),
-      tells: read_tells(tells_file),
-      quotes_file: Path::new(quotes_file).to_owned(),
       last_say_instant: Instant::now(),
-      markov_chain: markov_chain,
-      last_intervention: Instant::now()
+      log_path: Path::new(log_path).to_owned(),
     }
   }
 
+  // FIXME: do we really need that?
+  /// Try to clone this IRC client.
   fn try_clone(&self) -> Option<Self> {
     self.stream.get_ref().try_clone().map(|stream| {
       IRCClient {
@@ -94,31 +91,14 @@ impl IRCClient {
         line_buf: self.line_buf.clone(),
         nick: self.nick.clone(),
         channel: self.channel.clone(),
-        tells: self.tells.clone(),
-        quotes_file: self.quotes_file.clone(),
         last_say_instant: self.last_say_instant,
-        markov_chain: self.markov_chain.clone(), // FIXME: we seriously need to fix that
-        last_intervention: self.last_intervention.clone()
+        log_path: self.log_path.clone(),
       }
     }).ok()
   }
 
-  fn save_tells(&mut self) {
-    save_tells("tells.json", &self.tells);
-  }
-
-  fn read_line(&mut self) -> String {
-    self.line_buf.clear();
-    let _ = self.stream.read_line(&mut self.line_buf);
-    self.line_buf.trim().to_owned()
-  }
-
-  fn write_line(&mut self, msg: &str) {
-    let stream = self.stream.get_mut();
-    let _ = stream.write(msg.as_bytes());
-    let _ = stream.write("\n".as_bytes());
-  }
-
+  /// IRC initialization protocol implementation. Also, this function automatically joins the
+  /// channel.
   fn init(&mut self) {
     let nick = self.nick.clone();
 
@@ -128,50 +108,110 @@ impl IRCClient {
     self.rejoin();
   }
 
+  /// Read a line from IRC.
+  fn read_line(&mut self) -> String {
+    self.line_buf.clear();
+    let _ = self.stream.read_line(&mut self.line_buf);
+    self.line_buf.trim().to_owned()
+  }
+
+  /// Write a raw line to IRC.
+  fn write_line(&mut self, msg: &str) {
+    let stream = self.stream.get_mut();
+    let _ = stream.write(msg.as_bytes());
+    let _ = stream.write(&[b'\n']);
+  }
+
+  /// Join the channel.
   fn rejoin(&mut self) {
     let chan = self.channel.clone();
     self.write_line(&format!("JOIN {}", chan));
   }
 
+  /// Handle an IRC ping by sending the approriate pong.
   fn handle_ping(&mut self, ping: String) {
     let pong = "PO".to_owned() + &ping[2..];
     println!("\x1b[36msending PONG: {}\x1b[0m", pong);
     self.write_line(&pong);
   }
 
-  fn say(&mut self, msg: &str, priv_user: Option<&str>) {
+  /// Say something on IRC.
+  ///
+  /// This function expects the message to say and the destination. It can be user logged on the
+  /// server (not necessarily in the same channel) or nothing – in that case, the message will be
+  /// delivered to the channel.
+  fn say(&mut self, msg: &str, dest: Option<&str>) {
     if self.last_say_instant.elapsed() >= Duration::from_millis(MIN_MS_BETWEEN_SAYS) {
       self.last_say_instant = Instant::now();
       let header = "PRIVMSG ".to_owned();
 
-      match priv_user {
+      match dest {
         Some(user) => {
-          self.write_line(&(header + user + " :" + msg));
+          self.write_line(&format!("PRIVMSG {} :{}", user, msg));
         },
         None => {
           let channel = &self.channel.clone();
-          self.write_line(&(header + channel + " :" + msg));
+          self.write_line(&format!("PRIVMSG {} :{}", channel, msg));
         }
       }
     }
   }
 
+  /// Read the topic on the current channel.
+  fn read_topic(&mut self) -> Option<String> {
+    // ask for the topic
+    let chan = irc.channel.clone();
+    self.write_line(&format!("TOPIC {}", chan));
+  
+    // get the topic
+    let topic = self.read_line();
+  
+    // clean it
+    (&topic[1..]).find(':').map(|colon_ix| { // [1..] removes the first ':' (IRC proto)
+      let colon_ix = colon_ix + 2;
+      String::from((&topic[colon_ix..]).trim())
+    })
+  }
+
+  /// Save a message to the log.
   fn log_msg(&self, msg: &str) {
     let mut file = OpenOptions::new()
       .create(true)
       .append(true)
-      .open(&self.quotes_file).unwrap();
+      .open(&self.log_path).unwrap();
     let t = now();
     let bytes = format!("{:02}:{:02}:{:02} {}", t.tm_hour, t.tm_min, t.tm_sec, msg);
 
     let _ = file.write_all(bytes.as_bytes());
   }
+
+  /// Is a message a PING notification? This function is intended to be used with a raw IRC line.
+  fn is_ping(msg: &str) -> bool {
+    msg.starts_with("PING")
+  }
 }
 
-fn is_ping(msg: &str) -> bool {
-  msg.starts_with("PING")
+/// Supported orders.
+#[derive(Debug)]
+enum Order {
+  // from, to, content
+  Tell(Nick, Nick, String),
+  PrependTopic(String),
+  ResetTopic(String),
+  BotQuote(Vec<String>)
 }
 
+type Nick = String;
+type Cmd = String;
+type Message = String;
+type Tells = HashMap<Nick, Vec<(Nick, Message)>>;
+
+/// Extract the content of an IRC line, coming from someone saying something. The function returns
+/// a triple:
+///
+/// - who said that?
+/// - what IRC command was used?
+/// - the rest of the line
 fn extract_user_msg(msg: &str) -> Option<(Nick, Cmd, Vec<String>)> {
   if !msg.starts_with(":") {
     return None;
@@ -201,28 +241,24 @@ fn extract_user_msg(msg: &str) -> Option<(Nick, Cmd, Vec<String>)> {
   }
 }
 
+/// Dispatch what users say.
 fn dispatch_user_msg(irc: &mut IRCClient, nick: Nick, cmd: Cmd, args: Vec<String>) {
+
   match &cmd[..] {
-    "JOIN" => {
-      println!("\x1b[36m{} joined!\x1b[0m", nick);
-    },
-    "PRIVMSG" => {
+    "PRIVMSG" if nick != irc.nick => {
       treat_privmsg(irc, nick, args);
     },
-    "QUIT" => {
-      treat_quit(irc, nick);
+    "QUIT" if nick == irc.nick => {
+      on_quit(irc, nick);
     },
     _ => {}
   }
 }
 
+// FIXME: too long function, we need to split it up
+/// Action to take when a user said something.
 fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
-  // early return to prevent us from talking to ourself
-  if nick == irc.nick {
-    return;
-  }
-
-  args[1].remove(0); // remove the leading ':'
+  args[1].remove(0); // remove the leading ':' // FIXME: I guess we can remove that line
   let order = extract_order(nick.clone(), &args[1..]);
 
   match order {
@@ -285,6 +321,9 @@ fn treat_privmsg(irc: &mut IRCClient, nick: Nick, mut args: Vec<String>) {
   scan_url(irc, nick, private, content);
 }
 
+// FIXME: too long
+/// Scan a URL and try to retrieve its title. A thread is spawned to do the work and the function
+/// immediately returns.
 fn scan_url(irc: &mut IRCClient, nick: Nick, private: bool, content: String) {
   let re_match = RE_URL.find(&content);
 
@@ -367,6 +406,7 @@ fn scan_url(irc: &mut IRCClient, nick: Nick, private: bool, content: String) {
   }
 }
 
+/// Perform a HTTP GET at the given URL.
 fn http_get(url: &str) -> hyper::error::Result<client::response::Response> {
   let mut headers = header::Headers::new();
 
@@ -390,6 +430,8 @@ fn http_get(url: &str) -> hyper::error::Result<client::response::Response> {
   client.get(url).headers(headers).send()
 }
 
+/// Check that a HTTP GET response is valid – i.e. check for the HTTP headers that we can read the
+/// body.
 fn is_http_response_valid(url: &str, headers: &header::Headers) -> bool {
   // inspect the header to deny big things
   if let Some(&header::ContentLength(bytes)) = headers.get() {
@@ -416,13 +458,13 @@ fn is_http_response_valid(url: &str, headers: &header::Headers) -> bool {
   true
 }
 
-fn treat_quit(irc: &mut IRCClient, nick: String) {
-  if nick == irc.nick {
-    thread::sleep(Duration::from_secs(1));
-    irc.rejoin();
-  }
+/// What to do after we’ve quitted the channel.
+fn on_quit(irc: &mut IRCClient, nick: String) {
+  thread::sleep(Duration::from_secs(1));
+  irc.rejoin();
 }
 
+/// Extract – if possible – an order from a message from someone.
 fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
   match &(msg[0])[..] {
     "!tell" if msg.len() >= 3 => {
@@ -451,6 +493,7 @@ fn extract_order(from: Nick, msg: &[String]) -> Option<Order> {
   }
 }
 
+/// Record a tell message.
 fn add_tell(irc: &mut IRCClient, from: Nick, to: Nick, content: String) {
   let mut msgs = irc.tells.get(&to).map_or(Vec::new(), |x| x.clone());
   msgs.push((from.to_ascii_lowercase(), content));
@@ -458,6 +501,7 @@ fn add_tell(irc: &mut IRCClient, from: Nick, to: Nick, content: String) {
   irc.save_tells();
 }
 
+/// Prepend a topic fragment to the current topic held in the channel.
 fn prepend_topic(irc: &mut IRCClient, topic_part: String) {
   match read_topic(irc) {
     Some(ref topic) if topic_part != *topic => {
@@ -475,26 +519,14 @@ fn prepend_topic(irc: &mut IRCClient, topic_part: String) {
   }
 }
 
+/// Reset the current topic of the channel.
 fn reset_topic(irc: &mut IRCClient, new_topic: String) {
   let chan = irc.channel.clone();
   irc.write_line(&format!("TOPIC {} :{}", chan, new_topic)); // FIXME: sanitize
 }
 
-fn read_topic(irc: &mut IRCClient) -> Option<String> {
-  // ask for the topic
-  let chan = irc.channel.clone();
-  irc.write_line(&format!("TOPIC {}", chan));
-
-  // get the topic
-  let topic = irc.read_line();
-
-  // clean it
-  (&topic[1..]).find(':').map(|colon_ix| { // [1..] removes the first ':' (IRC proto)
-    let colon_ix = colon_ix + 2;
-    String::from((&topic[colon_ix..]).trim())
-  })
-}
-
+// FIXME: #7
+/// Generate something that we must say!
 fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
   let mut rng = rand::thread_rng();
 
@@ -613,20 +645,7 @@ fn bot_quote(irc: &mut IRCClient, ctx_words: &[String]) {
   }
 }
 
-#[derive(Debug)]
-enum Order {
-  // from, to, content
-  Tell(Nick, Nick, String),
-  PrependTopic(String),
-  ResetTopic(String),
-  BotQuote(Vec<String>)
-}
-
-type Nick = String;
-type Cmd = String;
-type Message = String;
-type Tells = HashMap<Nick, Vec<(Nick, Message)>>;
-
+/// Read tells from a JSON-formatted file.
 fn read_tells<P>(path: P) -> Tells where P: AsRef<Path> {
   match File::open(path.as_ref()) {
     Ok(file) => {
@@ -639,6 +658,7 @@ fn read_tells<P>(path: P) -> Tells where P: AsRef<Path> {
   }
 }
 
+/// Save tells to a JSON-formatted file.
 fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
   match File::create(path.as_ref()) {
     Ok(mut file) => {
@@ -652,6 +672,7 @@ fn save_tells<P>(path: P, tells: &Tells) where P: AsRef<Path> {
 
 type Word = String;
 
+/// State associated with a word.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct WordState {
   count: u32, // number of times this word was seen at all
@@ -662,6 +683,7 @@ struct WordState {
 }
 
 impl WordState {
+  /// Create a new null word state.
   fn new() -> Self {
     WordState {
       count: 0,
@@ -672,6 +694,7 @@ impl WordState {
     }
   }
 
+  /// Create a new null word state by providing the number of time the word was seen.
   fn new_with_count(count: u32) -> Self {
     WordState {
       count: count,
@@ -683,6 +706,20 @@ impl WordState {
   }
 }
 
+/// A Markov chain implementation.
+///
+/// Each node of the chain is a word associated with a word state. There’re currently two types of
+/// transitions to nagivate in the chain:
+///
+/// - forward transition
+/// - backward transition
+///
+/// We call going from a word `A` to a word `B` a forward transition only if the word `B` can
+/// appear *right* after `A`. We call going from a word `C` to a word `D` a backward transition only
+/// if the word `C` can appear *right* before `D`.
+///
+/// The Markov chain also stores several useful information about word, such as the number of times
+/// they appeared, in which position in the sentence, etc. That is used to compute probabilities.
 #[derive(Clone, Debug)]
 struct MarkovChain {
   chain: HashMap<Word, WordState>, // (next_word, count)
@@ -864,7 +901,7 @@ fn main() {
     let line = irc.read_line();
     println!("{}", line);
 
-    if is_ping(&line) {
+    if IRC::is_ping(&line) {
       irc.handle_ping(line);
       continue;
     }
