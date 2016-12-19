@@ -5,8 +5,7 @@ use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use time::now;
@@ -128,13 +127,27 @@ impl IRC {
 
   /// IRC initialization protocol implementation. Also, this function automatically joins the
   /// channel.
-  fn init(&mut self) {
+  pub fn init(&mut self) {
     let mut writer = self.writer.lock().unwrap();
     writer.write_line(&format!("USER a b c :d\nNICK {}\nJOIN {}", self.nick, self.channel));
   }
 
+  /// Run IRC.
+  pub fn run(&mut self) -> ! {
+    loop {
+      let line = { self.reader.lock().unwrap().read_line() };
+      println!("{}", line);
+
+      if IRC::is_ping(&line) {
+        self.handle_ping(line);
+      } else if let Some((nick, cmd, args)) = Self::extract_user_msg(&line) {
+        self.dispatch_user_msg(nick, cmd, args);
+      }
+    }
+  }
+
   /// Handle an IRC ping by sending the approriate pong.
-  fn handle_ping(&mut self, ping: String) {
+  pub fn handle_ping(&mut self, ping: String) {
     let pong = "PO".to_owned() + &ping[2..];
     println!("\x1b[36msending PONG: {}\x1b[0m", pong);
 
@@ -179,7 +192,7 @@ impl IRC {
     if let Some((start_index, end_index)) = re_match {
       // clone a few stuff to bring with us in the thread
       let dest = if private { nick } else { self.channel.clone() };
-      let (reader, writer) = (self.reader.clone(), self.writer.clone());
+      let writer = self.writer.clone();
   
       let url = (&content[start_index .. end_index]).to_owned();
       let _ = thread::spawn(move || Self::url_scan_work(writer, url, dest));

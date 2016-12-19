@@ -14,7 +14,7 @@ extern crate serde_json;
 extern crate time;
 
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 
 mod cli;
 mod http;
@@ -172,16 +172,6 @@ fn main() {
   //// create the IRC connection
   let mut irc = IRC::connect(host, IRC_PORT, nick, channel, tells, markov_chain, log_path);
 
-  //irc.init();
-
-  loop {
-  //  let line = irc.read_line();
-  //  println!("{}", line);
-
-  //  if IRC::is_ping(&line) {
-  //    irc.handle_ping(line);
-  //  } else if let Some((nick, cmd, args)) = extract_user_msg(&line) {
-  //    dispatch_user_msg(&mut irc, nick, cmd, args);
-  //  }
-  }
+  irc.init();
+  irc.run();
 }
