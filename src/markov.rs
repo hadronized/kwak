@@ -131,6 +131,22 @@ impl MarkovChain {
   pub fn prob_last(&self, word: &str) -> f32 {
     self.chain.get(word).map_or(0., |word_st| word_st.count_last as f32 / word_st.count as f32)
   }
+
+  /// Treat a line and add information about its words to the Markov chain.
+  pub fn treat_line(&mut self, words: &[String]) {
+    if words.len() > 1 {
+      self.seen(&words[0]);
+      self.seen_first(&words[0]);
+
+      for (word, next) in words.iter().zip(&words[1..]) {
+        self.seen(next);
+        self.account_next(word, next);
+        self.account_prev(next, word);
+      }
+
+      self.seen_last(&words[words.len()-1]);
+    }
+  }
 }
 
 pub type Word = String;

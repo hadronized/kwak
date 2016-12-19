@@ -39,6 +39,14 @@ impl Tells {
     }
   }
 
+  pub fn get(&self, nick: &str) -> Option<&Vec<(Nick, Message)>> {
+    self.tells.get(nick)
+  }
+
+  pub fn remove(&mut self, nick: &str) {
+    let _ = self.tells.remove(nick);
+  }
+
   /// Save tells to a JSON-formatted file.
   pub fn save(&self) {
     match File::create(&self.tells_path) {
@@ -51,8 +59,8 @@ impl Tells {
     }
   }
 
-  pub fn record(&mut self, from: Nick, to: Nick, content: &str) {
-    let mut msgs = self.tells.get(&to).map_or(Vec::new(), |x| x.clone());
+  pub fn record(&mut self, from: &str, to: &str, content: &str) {
+    let mut msgs = self.tells.get(to).map_or(Vec::new(), |x| x.clone());
     msgs.push((from.to_ascii_lowercase(), content.to_owned()));
     self.tells.insert(to.to_ascii_lowercase(), msgs);
 
