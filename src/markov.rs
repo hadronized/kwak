@@ -2,6 +2,11 @@ use std::collections::HashMap;
 use std::io::BufRead;
 use std::str::from_utf8;
 
+const MAX_SENTENCE_WORDS_LEN: usize = 64;
+const MAX_TRIES: usize = 100;
+const FIRST_PROB_THRESHOLD: f32 = 0.5;
+const LAST_PROB_THRESHOLD: f32 = 0.5;
+
 /// A Markov chain implementation.
 ///
 /// Each node of the chain is a word associated with a word state. There’re currently two types of

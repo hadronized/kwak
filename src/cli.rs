@@ -1,6 +1,6 @@
 use clap::{App, Arg};
 
-pub fn new() -> App {
+pub fn new<'a, 'b>() -> App<'a, 'b> where 'a: 'b {
   App::new("kwak")
     .arg(Arg::with_name("host")
          .short("h")

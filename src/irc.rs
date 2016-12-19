@@ -1,8 +1,12 @@
 use std::io::BufReader;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
+
+use http::{is_http_response_valid, http_get};
+use tells::Nick;
 
 const IRC_PORT: u16 = 6667;
 const MIN_MS_BETWEEN_SAYS: u64 = 500;
@@ -39,7 +43,7 @@ enum Order {
 /// IRC client.
 struct IRC {
   /// TCP stream holding the IRC connection.
-  stream: BufReader<TcpStream>,
+  stream: Arc<Mutex<TcpStream>>,
   /// Line buffer used to read from IRC.
   line_buf: String,
   /// Our nickname.
@@ -58,7 +62,7 @@ impl IRC {
   /// Connect to an IRC server with a given name, then join the given channel. All messages will be
   /// registered to the given log path.
   fn connect(addr: &str, port: u16, nick: &str, channel: &str, log_path: &str) -> Self {
-    let stream = BufReader::new(net::TcpStream::connect((addr, port)).unwrap());
+    let stream = Arc::new(Mutex::new(TcpStream::connect((addr, port)).unwrap()));
 
     IRCClient {
       stream: stream,
@@ -76,9 +80,7 @@ impl IRC {
   fn init(&mut self) {
     let nick = self.nick.clone();
 
-    self.write_line("USER a b c :d");
-    self.write_line(&format!("NICK {}", nick));
-
+    self.write_line(&format!("USER a b c :d\nNICK {}", nick));
     self.rejoin();
   }
 
@@ -89,9 +91,9 @@ impl IRC {
     self.line_buf.trim().to_owned()
   }
 
-  /// Write a raw line to IRC.
+  /// Write a line to IRC.
   fn write_line(&mut self, msg: &str) {
-    let stream = self.stream.get_mut();
+    let stream = self.stream.lock().unwrap();
     let _ = stream.write(msg.as_bytes());
     let _ = stream.write(&[b'\n']);
   }
@@ -148,34 +150,6 @@ impl IRC {
     msg.starts_with("PING")
   }
 
-  /// Check that a HTTP GET response is valid – i.e. check for the HTTP headers that we can read the
-  /// body.
-  fn is_http_response_valid(url: &str, headers: &header::Headers) -> bool {
-    // inspect the header to deny big things
-    if let Some(&header::ContentLength(bytes)) = headers.get() {
-      println!("\x1b[36msize {} bytes\x1b[0m", bytes);
-  
-      // deny anything >= 1MB
-      if bytes >= 1000000 {
-        println!("\x1b[31m{} denied because too big ({} bytes)\x1b[0m", url, bytes);
-        return false;
-      }
-    }
-  
-    // inspect mime (we only want HTML)
-    if let Some(&header::ContentType(ref ty)) = headers.get() {
-      println!("\x1b[36mty {:?}\x1b[0m", ty);
-  
-      // deny anything that is not HTML
-      if ty.0 != mime::TopLevel::Text && ty.1 != mime::SubLevel::Html {
-        println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, ty);
-        return false;
-      }
-    }
-  
-    true
-  }
-
   // FIXME: too long
   /// Scan a URL and try to retrieve its title. A thread is spawned to do the work and the function
   /// immediately returns.
@@ -187,32 +161,15 @@ impl IRC {
       let channel = if private { Some(nick.clone()) } else { None };
       let sx = self.url_scan_channel.0; // used to notify the main thread when we’re done
   
-      let _ = thread::spawn(move || url_scan_work(?));
+      let _ = thread::spawn(move || url_scan_work(&content));
     }
   }
 
-  /// Fix some URLs
-  fn fix_url_(url: &str) -> String {
-    let youtube_video_id = RE_YOUTUBE.captures(&url);
-    let youtu_be_video_id = RE_YOUTU_BE.captures(&url);
-
-    match (&youtube_video_id, &youtu_be_video_id) {
-      (&Some(ref captures), _) | (_, &Some(ref captures)) => {
-        if let Some(video_id) = captures.at(1) {
-          format!("http://www.infinitelooper.com/?v={}", video_id)
-        } else {
-          String::new()
-        }
-      },
-      _ => String::new()
-    }
-  }
-
-  fn url_scan_work(?) -> ! {
-    let mut url = String::from(&content[start_index .. end_index]);
+  fn url_scan_work(content: &str) {
+    let url = &content[start_index .. end_index];
 
     // fix some URLs that might cause problems
-    let url = fix_url(&url);
+    let (url, fixed_url_method) = fix_url(&url);
 
     match http_get(&url) {
       Ok(mut response) => {
@@ -224,48 +181,55 @@ impl IRC {
         let mut body = String::new();
         let _ = response.read_to_string(&mut body);
 
-        // find the title and send it back to the main thread if found any
-        if let Some(captures) = RE_TITLE.captures(&body) {
-          if let Some(title) = captures.at(1) {
-            let cleaned_title: String = title.chars().filter(|c| *c != '\n').collect();
-
-            // decode entities ; if we cannot, just dump the title as-is
-            let cleaned_title = decode_html_entities(&cleaned_title).unwrap_or(cleaned_title);
-            let mut cleaned_title = cleaned_title.trim();
-
-            // partial fix for youtube; remove the "InfiniteLooper - " header from the title
-            if youtube_video_id.is_some() || youtu_be_video_id.is_some() {
-              cleaned_title = &cleaned_title[17..];
-            }
-
-            // remove internal consecutive spaces
-            let mut space_prev = false;
-            let final_title: String = cleaned_title.chars().filter(move |&c| {
-              if c == ' ' {
-                if space_prev {
-                  // if this space is contiguous to others, just don’t include him anymore
-                  false
-                } else {
-                  space_prev = true;
-                  true
-                }
-              } else {
-                space_prev = false;
-                true
-              }
-            }).collect();
-
-            match channel {
-              Some(nick) => irc.say(&format!("\x037«\x036 {} \x037»\x0F", final_title), Some(&nick)),
-              None => irc.say(&format!("\x037«\x036 {} \x037»\x0F", final_title), None),
-            }
-          }
-        }
+        // find the title
+        let title = find_title(&body, fixed_url_method);
+        Some(nick) => Some((format!("\x037«\x036 {} \x037»\x0F", final_title), Some(&nick))),
       },
       Err(e) => {
         println!("\x1b[31munable to get {}: {:?}\x1b[0m", url, e);
+        None
       }
     }
+  }
+
+  /// Fix some URLs
+  fn fix_url(url: &str) -> (String, Option<FixedURLMethod>) {
+    let youtube_video_id = RE_YOUTUBE.captures(&url);
+    let youtu_be_video_id = RE_YOUTU_BE.captures(&url);
+
+    match (&youtube_video_id, &youtu_be_video_id) {
+      (&Some(ref captures), _) | (_, &Some(ref captures)) => {
+        if let Some(video_id) = captures.at(1) {
+          (format!("http://www.infinitelooper.com/?v={}", video_id), FixedURLMethod::Youtube)
+        } else {
+          (String::new(), None)
+        }
+      },
+      _ => (url.to_owned(), None)
+    }
+  }
+
+  fn find_title(body: &str, fixed_url_method: FixedURLMethod) -> String {
+    if let Some(captures) = RE_TITLE.captures(body) {
+      if let Some(title) = captures.at(1) {
+        let mut cleaned_title: String = title.chars().filter(|c| *c != '\n').collect();
+
+        // decode entities ; if we cannot, just dump the title as-is
+        cleaned_title = decode_html_entities(&cleaned_title).unwrap_or(cleaned_title).trim();
+
+        if let Some(FixedURLMethod::Youtube) = fixed_url_method {
+          cleaned_title = fix_youtube_title(cleaned_title);
+        }
+
+        // remove internal consecutive spaces and output
+        remove_consecutive_whitespaces(&cleaned_title);
+      }
+    }
+  }
+
+  /// Fix a Youtube title.
+  fn fix_youtube_title(title: &str) -> &str {
+    &title[17..]
   }
 
   /// Extract the content of an IRC line, coming from someone saying something. The function returns
@@ -454,4 +418,28 @@ impl IRC {
     let chan = irc.channel.clone();
     irc.write_line(&format!("TOPIC {} :{}", chan, new_topic)); // FIXME: sanitize
   }
+}
+
+#[derive(Clone)]
+enum FixedURLMethod {
+  Youtube
+}
+
+fn remove_consecutive_whitespaces(input: &str) -> String {
+  let mut space_prev = false;
+
+  input.chars().filter(move |&c| {
+    if c.is_whitespace() {
+      if space_prev {
+        // if this space is contiguous to others, just don’t include him anymore
+        false
+      } else {
+        space_prev = true;
+        true
+      }
+    } else {
+      space_prev = false;
+      true
+    }
+  }).collect()
 }
