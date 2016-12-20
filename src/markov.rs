@@ -57,8 +57,15 @@ impl MarkovChain {
 
       // if there’s at least one word (time nick word...)
       if words.len() > 2 {
-        markov_chain.seen(&words[2]);
-        markov_chain.seen_first(&words[2]);
+        let first_word = &words[2];
+
+        // remove line starting with the command operator
+        if first_word.starts_with("!") {
+          continue;
+        }
+
+        markov_chain.seen(first_word);
+        markov_chain.seen_first(first_word);
 
         // if there’s at least two words (time nick word next...)
         if words.len() > 3 {
