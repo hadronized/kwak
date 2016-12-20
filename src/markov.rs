@@ -53,31 +53,8 @@ impl MarkovChain {
         }
       };
 
-      let words: Vec<&str> = decoded.as_str().split_whitespace().collect();
-
-      // if there’s at least one word (time nick word...)
-      if words.len() > 2 {
-        let first_word = &words[2];
-
-        // remove line starting with the command operator
-        if first_word.starts_with("!") {
-          continue;
-        }
-
-        markov_chain.seen(first_word);
-        markov_chain.seen_first(first_word);
-
-        // if there’s at least two words (time nick word next...)
-        if words.len() > 3 {
-          for (word, next) in (&words[2..]).iter().zip(&words[3..]) {
-            markov_chain.account_next(word, next);
-            markov_chain.account_prev(next, word);
-            markov_chain.seen(next);
-          }
-        }
-
-        markov_chain.seen_last(&words[words.len()-1]);
-      }
+      let words: Vec<&str> = (&decoded.as_str()[2..]).split_whitespace().collect();
+      markov_chain.treat_line(&words);
     }
 
     markov_chain
@@ -140,10 +117,17 @@ impl MarkovChain {
   }
 
   /// Treat a line and add information about its words to the Markov chain.
-  pub fn treat_line(&mut self, words: &[String]) {
+  pub fn treat_line(&mut self, words: &[&str]) {
     if words.len() > 1 {
-      self.seen(&words[0]);
-      self.seen_first(&words[0]);
+      let first_word = &words[0];
+
+      // drop the line if it starts with the command operator
+      if first_word.starts_with("!") {
+        return;
+      }
+
+      self.seen(first_word);
+      self.seen_first(first_word);
 
       for (word, next) in words.iter().zip(&words[1..]) {
         self.seen(next);
