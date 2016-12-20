@@ -128,8 +128,26 @@ impl IRC {
   /// IRC initialization protocol implementation. Also, this function automatically joins the
   /// channel.
   pub fn init(&self) {
+    {
+      let mut writer = self.writer.lock().unwrap();
+      writer.write_line("USER a b c :d");
+      writer.write_line(&format!("NICK {}", self.nick));
+    }
+
+    loop {
+      let line = {
+        let mut reader = self.reader.lock().unwrap();
+        reader.read_line()
+      };
+
+      if Self::is_ping(&line) {
+        self.handle_ping(&line);
+        break;
+      }
+    }
+
     let mut writer = self.writer.lock().unwrap();
-    writer.write_line(&format!("USER a b c :d\nNICK {}\nJOIN {}", self.nick, self.channel));
+    writer.write_line(&format!("JOIN {}", self.channel));
   }
 
   /// Run IRC.
@@ -138,8 +156,8 @@ impl IRC {
       let line = { self.reader.lock().unwrap().read_line() };
       println!("{}", line);
 
-      if IRC::is_ping(&line) {
-        self.handle_ping(line);
+      if Self::is_ping(&line) {
+        self.handle_ping(&line);
       } else if let Some((nick, cmd, args)) = Self::extract_user_msg(&line) {
         self.dispatch_user_msg(nick, cmd, args);
       }
@@ -147,7 +165,7 @@ impl IRC {
   }
 
   /// Handle an IRC ping by sending the approriate pong.
-  pub fn handle_ping(&self, ping: String) {
+  pub fn handle_ping(&self, ping: &str) {
     let pong = "PO".to_owned() + &ping[2..];
     println!("\x1b[36msending PONG: {}\x1b[0m", pong);
 
