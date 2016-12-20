@@ -127,7 +127,7 @@ impl IRC {
 
   /// IRC initialization protocol implementation. Also, this function automatically joins the
   /// channel.
-  pub fn init(&mut self) {
+  pub fn init(&self) {
     let mut writer = self.writer.lock().unwrap();
     writer.write_line(&format!("USER a b c :d\nNICK {}\nJOIN {}", self.nick, self.channel));
   }
@@ -147,7 +147,7 @@ impl IRC {
   }
 
   /// Handle an IRC ping by sending the approriate pong.
-  pub fn handle_ping(&mut self, ping: String) {
+  pub fn handle_ping(&self, ping: String) {
     let pong = "PO".to_owned() + &ping[2..];
     println!("\x1b[36msending PONG: {}\x1b[0m", pong);
 
@@ -160,7 +160,7 @@ impl IRC {
   /// This function expects the message to say and the destination. It can be user logged on the
   /// server (not necessarily in the same channel) or nothing – in that case, the message will be
   /// delivered to the channel.
-  fn say(&mut self, msg: &str, dest: Option<&str>) {
+  fn say(&self, msg: &str, dest: Option<&str>) {
     let mut writer = self.writer.lock().unwrap();
     let dest = if let Some(nick) = dest { nick.to_owned() } else { self.channel.clone() };
 
@@ -186,7 +186,7 @@ impl IRC {
 
   /// Scan a URL and try to retrieve its title. A thread is spawned to do the work and the function
   /// immediately returns.
-  fn url_scan(&mut self, nick: Nick, private: bool, content: String) {
+  fn url_scan(&self, nick: Nick, private: bool, content: String) {
     let re_match = RE_URL.find(&content);
   
     if let Some((start_index, end_index)) = re_match {
@@ -200,7 +200,6 @@ impl IRC {
   }
 
   fn url_scan_work(writer: Arc<Mutex<IRCWriter>>, url: String, dest: String) {
-
     // fix some URLs that might cause problems
     let (url, fixed_url_method) = Self::fix_url(&url);
 
@@ -390,13 +389,13 @@ impl IRC {
   }
 
   /// What to do after we’ve quitted the channel.
-  fn on_quit(&mut self) {
+  fn on_quit(&self) {
     thread::sleep(Duration::from_secs(1));
     self.init();
   }
 
   /// Read the topic on the current channel.
-  fn read_topic(&mut self) -> Option<String> {
+  fn read_topic(&self) -> Option<String> {
     // ask for the topic
     {
       let mut writer = self.writer.lock().unwrap();
@@ -416,7 +415,7 @@ impl IRC {
   }
 
   /// Prepend a topic fragment to the current topic held in the channel.
-  fn prepend_topic(&mut self, topic_part: String) {
+  fn prepend_topic(&self, topic_part: String) {
     match self.read_topic() {
       Some(ref topic) if topic_part != *topic => {
         let chan = self.channel.clone();
@@ -436,10 +435,13 @@ impl IRC {
   }
 
   /// Reset the current topic of the channel.
-  fn reset_topic(&mut self, new_topic: String) {
+  fn reset_topic(&self, new_topic: String) {
     let mut writer = self.writer.lock().unwrap();
     writer.write_line(&format!("TOPIC {} :{}", self.channel.clone(), new_topic)); // FIXME: sanitize
   }
+
+  ///// Generate a line and say it on IRC.
+  //fn think_and_say(&self) ->
 }
 
 #[derive(Clone)]
