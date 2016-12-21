@@ -56,7 +56,11 @@ impl IRCReader {
   fn read_line(&mut self) -> String {
     self.line_buf.clear();
     let _ = self.stream.read_line(&mut self.line_buf);
-    self.line_buf.trim().to_owned()
+    let line = self.line_buf.trim().to_owned();
+
+    println!("<-- {}", line);
+
+    line
   }
 }
 
@@ -72,6 +76,8 @@ impl IRCWriter {
   fn write_line(&mut self, msg: &str) {
     let _ = self.stream.write(msg.as_bytes());
     let _ = self.stream.write(&[b'\n']);
+
+    println!("--> {}", msg);
   }
 
   /// Say something on IRC.
@@ -91,6 +97,8 @@ pub struct IRC {
   writer: Arc<Mutex<IRCWriter>>,
   /// Our nickname.
   nick: String,
+  /// The current host we’re connected to.
+  host: String,
   /// The current channel we’re connected to.
   channel: String,
   /// Tells.
@@ -118,6 +126,7 @@ impl IRC {
       reader: reader,
       writer: writer,
       nick: nick.to_owned(),
+      host: addr.to_owned(),
       channel: channel.to_owned(),
       tells: tells,
       markov_chain: markov_chain,
@@ -130,7 +139,7 @@ impl IRC {
   pub fn init(&self) {
     {
       let mut writer = self.writer.lock().unwrap();
-      writer.write_line("USER a b c :d");
+      writer.write_line(&format!("USER a {0:} {0:} :d", self.host));
       writer.write_line(&format!("NICK {}", self.nick));
     }
 
@@ -143,6 +152,8 @@ impl IRC {
       if Self::is_ping(&line) {
         self.handle_ping(&line);
         break;
+      } else if Self::is_welcome(&line) {
+        break;
       }
     }
 
@@ -154,7 +165,6 @@ impl IRC {
   pub fn run(&mut self) -> ! {
     loop {
       let line = { self.reader.lock().unwrap().read_line() };
-      println!("{}", line);
 
       if Self::is_ping(&line) {
         self.handle_ping(&line);
@@ -200,6 +210,13 @@ impl IRC {
   /// Is a message a PING notification? This function is intended to be used with a raw IRC line.
   fn is_ping(msg: &str) -> bool {
     msg.starts_with("PING")
+  }
+
+  /// Is a message a WELCOME notification? This function is intended to be used with a raw IRC line.
+  fn is_welcome(msg: &str) -> bool {
+    let words: Vec<_> = msg.split_whitespace().collect();;
+
+    words.len() > 1 && words[1] == "001"
   }
 
   /// Scan a URL and try to retrieve its title. A thread is spawned to do the work and the function
