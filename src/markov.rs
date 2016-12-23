@@ -120,7 +120,6 @@ impl MarkovChain {
 
   /// Treat a line and add information about its words to the Markov chain.
   pub fn treat_line(&mut self, words: &[&str]) {
-    println!("treating line for Markov: {:?}", words);
     if words.len() > 1 {
       let first_word = &words[0];
 
