@@ -56,7 +56,10 @@ impl MarkovChain {
       };
 
       let words: Vec<&str> = decoded.as_str().split_whitespace().collect();
-      markov_chain.treat_line(&words[2..]);
+
+      if words.len() > 2 {
+        markov_chain.treat_line(&words[2..]);
+      }
     }
 
     markov_chain
