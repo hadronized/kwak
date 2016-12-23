@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use rand::thread_rng;
+use rand::distributions::{IndependentSample, Range};
+use std::collections::{HashMap, LinkedList};
 use std::io::BufRead;
 use std::str::from_utf8;
 
@@ -53,8 +55,8 @@ impl MarkovChain {
         }
       };
 
-      let words: Vec<&str> = (&decoded.as_str()[2..]).split_whitespace().collect();
-      markov_chain.treat_line(&words);
+      let words: Vec<&str> = decoded.as_str().split_whitespace().collect();
+      markov_chain.treat_line(&words[2..]);
     }
 
     markov_chain
@@ -118,6 +120,7 @@ impl MarkovChain {
 
   /// Treat a line and add information about its words to the Markov chain.
   pub fn treat_line(&mut self, words: &[&str]) {
+    println!("treating line for Markov: {:?}", words);
     if words.len() > 1 {
       let first_word = &words[0];
 
@@ -136,6 +139,68 @@ impl MarkovChain {
       }
 
       self.seen_last(&words[words.len()-1]);
+    }
+  }
+
+  /// Create a new line out of a few words.
+  pub fn gen_random_line(&self, words: &[String]) -> String {
+    if words.is_empty() {
+      return String::new();
+    }
+
+    let mut out: LinkedList<String> = words.iter().cloned().collect();
+    let mut found_first = false;
+    let mut found_last = false;
+
+    let mut rng = thread_rng();
+
+    // add words in front
+    loop {
+      let word = out.front().cloned().unwrap();
+      let words = self.prev_words(&word);
+
+      if words.is_empty() {
+        break;
+      }
+
+      let between = Range::new(0, words.len());
+      let index = between.ind_sample(&mut rng);
+      let pick = words[index].0.clone();
+
+      out.push_front(pick.clone());
+
+      if self.prob_first(&pick) >= 0.5 {
+        found_first = true;
+        break;
+      }
+    }
+
+    // add words in back
+    loop {
+      let word = out.back().cloned().unwrap();
+      let words = self.next_words(&word);
+
+      if words.is_empty() {
+        break;
+      }
+
+      let between = Range::new(0, words.len());
+      let index = between.ind_sample(&mut rng);
+      let pick = words[index].0.clone();
+
+      out.push_back(pick.clone());
+
+      if self.prob_last(&pick) >= 0.5 {
+        found_last = true;
+        break;
+      }
+    }
+
+    if found_first && found_last {
+      let words: Vec<_> = out.into_iter().collect();
+      words.join(" ").to_owned()
+    } else {
+      String::new()
     }
   }
 }

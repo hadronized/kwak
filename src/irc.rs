@@ -1,4 +1,6 @@
 use html_entities::decode_html_entities;
+use rand::thread_rng;
+use rand::distributions::{IndependentSample, Range};
 use regex::Regex;
 use std::ascii::AsciiExt;
 use std::fs::OpenOptions;
@@ -395,7 +397,7 @@ impl IRC {
       Some(Order::Tell(from, to, content)) => self.tells.record(&from, &to, &content),
       Some(Order::PrependTopic(topic)) => self.prepend_topic(topic),
       Some(Order::ResetTopic(topic)) => self.reset_topic(topic),
-      Some(Order::BotQuote(words)) => {}, // bot_quote(irc, &words), FIXME: markov
+      Some(Order::BotQuote(words)) => self.bot_quote(&words),
       None => {
         // someone just said something, and it’s not an order, see whether we should say something
         if let Some(msgs) = self.tells.get(&nick.to_ascii_lowercase()).cloned() {
@@ -416,7 +418,8 @@ impl IRC {
     self.log_msg(&format!("{} {}\n", nick, content));
   
     // add what that people say to the markov model
-    //markov_chain.treat_line(&args[1..]);
+    let words: Vec<_> = (&args[1..]).iter().map(|s| &s[..]).collect();
+    self.markov_chain.treat_line(&words);
   
     // look for URLs to scan
     let private = &args[0] == &self.nick;
@@ -475,8 +478,28 @@ impl IRC {
     writer.write_line(&format!("TOPIC {} :{}", self.channel.clone(), new_topic)); // FIXME: sanitize
   }
 
-  ///// Generate a line and say it on IRC.
-  //fn think_and_say(&self) ->
+  /// Generate a line and say it on IRC.
+  fn bot_quote(&self, words: &[String]) {
+    if words.is_empty() {
+      return;
+    }
+
+    let mut rng = thread_rng();
+    let between = Range::new(0, words.len());
+    let (i, j) = {
+      let a = between.ind_sample(&mut rng);
+      let b = between.ind_sample(&mut rng);
+
+      if a <= b {
+        (a, b + 1)
+      } else {
+        (b, a + 1)
+      }
+    };
+
+    let line = self.markov_chain.gen_random_line(&words[i..j]);
+    self.say(&line, None);
+  }
 }
 
 #[derive(Clone)]
