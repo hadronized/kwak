@@ -198,7 +198,13 @@ impl MarkovChain {
 
     if found_first && found_last {
       let words: Vec<_> = out.into_iter().collect();
-      words.join(" ").to_owned()
+
+      // FIXME: partial fix for #4
+      if words.contains(&"sam".to_owned()) || words.contains(&"sam:".to_owned()) {
+        String::new()
+      } else {
+        words.join(" ").to_owned()
+      }
     } else {
       String::new()
     }
