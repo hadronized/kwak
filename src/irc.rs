@@ -484,20 +484,7 @@ impl IRC {
       return;
     }
 
-    let mut rng = thread_rng();
-    let between = Range::new(0, words.len());
-    let (i, j) = {
-      let a = between.ind_sample(&mut rng);
-      let b = between.ind_sample(&mut rng);
-
-      if a <= b {
-        (a, b + 1)
-      } else {
-        (b, a + 1)
-      }
-    };
-
-    let line = self.markov_chain.gen_random_line(&words[i..j]);
+    let line = self.markov_chain.gen_random_line(&words);
     self.say(&line, None);
   }
 }
