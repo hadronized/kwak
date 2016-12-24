@@ -158,7 +158,7 @@ impl MarkovChain {
 
     // add words in front
     loop {
-      let words = self.prev_words(out.front().unwrap());
+      let words: Vec<_> = self.prev_words(out.front().unwrap()).into_iter().filter(|w| w.1 >= 0.5).collect();
 
       if words.is_empty() {
         break;
@@ -178,7 +178,7 @@ impl MarkovChain {
 
     // add words in back
     loop {
-      let words = self.next_words(out.back().unwrap());
+      let words: Vec<_> = self.next_words(out.back().unwrap()).into_iter().filter(|w| w.1 >= 0.5).collect();
 
       if words.is_empty() {
         break;
