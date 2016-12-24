@@ -6,7 +6,6 @@ use std::str::from_utf8;
 
 const FIRST_PROB_THRESHOLD: f32 = 0.5;
 const LAST_PROB_THRESHOLD: f32 = 0.5;
-const FILTER_PARASITE_THRESHOLD: f32 = 0.01;
 
 /// A Markov chain implementation.
 ///
@@ -157,7 +156,7 @@ impl MarkovChain {
 
     // add words in front
     loop {
-      let words: Vec<_> = self.prev_words(out.front().unwrap()).into_iter().filter(|w| w.1 >= FILTER_PARASITE_THRESHOLD).collect();
+      let words = self.prev_words(out.front().unwrap());
 
       if words.is_empty() {
         break;
@@ -177,7 +176,7 @@ impl MarkovChain {
 
     // add words in back
     loop {
-      let words: Vec<_> = self.next_words(out.back().unwrap()).into_iter().filter(|w| w.1 >= FILTER_PARASITE_THRESHOLD).collect();
+      let words = self.next_words(out.back().unwrap());
 
       if words.is_empty() {
         break;
