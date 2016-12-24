@@ -158,8 +158,7 @@ impl MarkovChain {
 
     // add words in front
     loop {
-      let word = out.front().cloned().unwrap();
-      let words = self.prev_words(&word);
+      let words = self.prev_words(out.front().unwrap());
 
       if words.is_empty() {
         break;
@@ -179,8 +178,7 @@ impl MarkovChain {
 
     // add words in back
     loop {
-      let word = out.back().cloned().unwrap();
-      let words = self.next_words(&word);
+      let words = self.next_words(out.back().unwrap());
 
       if words.is_empty() {
         break;
