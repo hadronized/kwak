@@ -1,6 +1,4 @@
 use html_entities::decode_html_entities;
-use rand::thread_rng;
-use rand::distributions::{IndependentSample, Range};
 use regex::Regex;
 use std::ascii::AsciiExt;
 use std::fs::OpenOptions;

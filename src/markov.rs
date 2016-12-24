@@ -4,10 +4,9 @@ use std::collections::{HashMap, LinkedList};
 use std::io::BufRead;
 use std::str::from_utf8;
 
-const MAX_SENTENCE_WORDS_LEN: usize = 64;
-const MAX_TRIES: usize = 100;
 const FIRST_PROB_THRESHOLD: f32 = 0.5;
 const LAST_PROB_THRESHOLD: f32 = 0.5;
+const FILTER_PARASITE_THRESHOLD: f32 = 0.1;
 
 /// A Markov chain implementation.
 ///
@@ -158,7 +157,7 @@ impl MarkovChain {
 
     // add words in front
     loop {
-      let words: Vec<_> = self.prev_words(out.front().unwrap()).into_iter().filter(|w| w.1 >= 0.5).collect();
+      let words: Vec<_> = self.prev_words(out.front().unwrap()).into_iter().filter(|w| w.1 >= FILTER_PARASITE_THRESHOLD).collect();
 
       if words.is_empty() {
         break;
@@ -170,7 +169,7 @@ impl MarkovChain {
 
       out.push_front(pick.clone());
 
-      if self.prob_first(&pick) >= 0.5 {
+      if self.prob_first(&pick) >= FIRST_PROB_THRESHOLD {
         found_first = true;
         break;
       }
@@ -178,7 +177,7 @@ impl MarkovChain {
 
     // add words in back
     loop {
-      let words: Vec<_> = self.next_words(out.back().unwrap()).into_iter().filter(|w| w.1 >= 0.5).collect();
+      let words: Vec<_> = self.next_words(out.back().unwrap()).into_iter().filter(|w| w.1 >= FILTER_PARASITE_THRESHOLD).collect();
 
       if words.is_empty() {
         break;
@@ -190,7 +189,7 @@ impl MarkovChain {
 
       out.push_back(pick.clone());
 
-      if self.prob_last(&pick) >= 0.5 {
+      if self.prob_last(&pick) >= LAST_PROB_THRESHOLD {
         found_last = true;
         break;
       }
