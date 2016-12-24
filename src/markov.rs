@@ -6,7 +6,7 @@ use std::str::from_utf8;
 
 const FIRST_PROB_THRESHOLD: f32 = 0.5;
 const LAST_PROB_THRESHOLD: f32 = 0.5;
-const FILTER_PARASITE_THRESHOLD: f32 = 0.1;
+const FILTER_PARASITE_THRESHOLD: f32 = 0.01;
 
 /// A Markov chain implementation.
 ///
