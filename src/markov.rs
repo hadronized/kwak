@@ -198,7 +198,7 @@ impl MarkovChain {
       let words: Vec<_> = out.into_iter().collect();
 
       // FIXME: partial fix for #4
-      if words.contains(&"sam".to_owned()) || words.contains(&"sam:".to_owned()) {
+      if words.contains(&"sam".to_owned()) || words.contains(&"sam:".to_owned()) || words.contains(&"sam,".to_owned()) {
         String::new()
       } else {
         words.join(" ").to_owned()
