@@ -1,5 +1,3 @@
-#![feature(proc_macro)]
-
 extern crate clap;
 #[macro_use]
 extern crate lazy_static;

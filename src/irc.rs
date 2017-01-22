@@ -21,6 +21,7 @@ lazy_static!{
   static ref RE_TITLE: Regex = Regex::new("<title>([^<]*)</title>").unwrap();
   static ref RE_YOUTUBE: Regex = Regex::new("https?://www\\.youtube\\.com/watch.+v=([^&?]+)").unwrap();
   static ref RE_YOUTU_BE: Regex = Regex::new("https?://youtu\\.be/([^&?]+)").unwrap();
+  static ref RE_I_IMGUR: Regex = Regex::new("https?://i\\.imgur\\.com/([^.]+)").unwrap();
 }
 
 macro_rules! opt {
@@ -271,16 +272,31 @@ impl IRC {
     let youtube_video_id = RE_YOUTUBE.captures(&url);
     let youtu_be_video_id = RE_YOUTU_BE.captures(&url);
 
-    match (&youtube_video_id, &youtu_be_video_id) {
-      (&Some(ref captures), _) | (_, &Some(ref captures)) => {
+    match (youtube_video_id, youtu_be_video_id) {
+      (Some(ref captures), _) | (_, Some(ref captures)) => {
         if let Some(video_id) = captures.at(1) {
-          (format!("http://www.infinitelooper.com/?v={}", video_id), Some(FixedURLMethod::Youtube))
+          return (format!("http://www.infinitelooper.com/?v={}", video_id), Some(FixedURLMethod::Youtube));
         } else {
-          (String::new(), None)
+          return (String::new(), None);
         }
       },
-      _ => (url.to_owned(), None)
+      _ => {}
     }
+
+    let i_imgur_id = RE_I_IMGUR.captures(&url);
+
+    match i_imgur_id {
+      Some(ref captures) => {
+        if let Some(img_id) = captures.at(1) {
+          return (format!("http://imgur.com/{}", img_id), Some(FixedURLMethod::Imgur));
+        } else {
+          return (String::new(), None);
+        }
+      },
+      _ => {}
+    }
+
+    (url.to_owned(), None)
   }
 
   fn find_title(body: &str, fixed_url_method: Option<FixedURLMethod>) -> Option<String> {
@@ -489,7 +505,8 @@ impl IRC {
 
 #[derive(Clone)]
 enum FixedURLMethod {
-  Youtube
+  Youtube,
+  Imgur
 }
 
 fn remove_consecutive_whitespaces(input: &str) -> String {
