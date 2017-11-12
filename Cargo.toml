@@ -7,9 +7,9 @@ authors = ["Dimitri Sabadie <dimitri.sabadie@sculpteo.com>"]
 clap = "2.14.0"
 lazy_static = "0.2.1"
 html-entities = { git = "https://github.com/phaazon/html-entities" }
-hyper = "0.9.10"
 rand = "0.3.15"
 regex = "0.1.77"
+reqwest = "0.8.1"
 serde = "0.8.2"
 serde_derive = "0.8.2"
 serde_json = "0.8.2"

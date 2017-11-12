@@ -242,7 +242,7 @@ impl IRC {
     match http_get(&url) {
       Ok(mut response) => {
         // inspect the header to deny big things
-        if !is_http_response_valid(&url, &response.headers) {
+        if !is_http_response_valid(&url, &response.headers()) {
           return;
         }
 
