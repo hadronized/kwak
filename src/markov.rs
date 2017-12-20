@@ -6,6 +6,7 @@ use std::str::from_utf8;
 
 const FIRST_PROB_THRESHOLD: f32 = 0.5;
 const LAST_PROB_THRESHOLD: f32 = 0.5;
+const RANDOM_LINE_WORDS_LIMIT: usize = 512;
 
 /// A Markov chain implementation.
 ///
@@ -156,6 +157,10 @@ impl MarkovChain {
 
     // add words in front
     loop {
+      if out.len() > RANDOM_LINE_WORDS_LIMIT {
+        break;
+      }
+
       let words = self.prev_words(out.front().unwrap());
 
       if words.is_empty() {
@@ -176,6 +181,10 @@ impl MarkovChain {
 
     // add words in back
     loop {
+      if out.len() > RANDOM_LINE_WORDS_LIMIT {
+        break;
+      }
+
       let words = self.next_words(out.back().unwrap());
 
       if words.is_empty() {
