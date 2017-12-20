@@ -4,13 +4,13 @@ version = "0.1.0"
 authors = ["Dimitri Sabadie <dimitri.sabadie@sculpteo.com>"]
 
 [dependencies]
-clap = "2.14.0"
-lazy_static = "0.2.1"
-html-entities = { git = "https://github.com/phaazon/html-entities" }
-rand = "0.3.15"
-regex = "0.1.77"
-reqwest = "0.8.1"
-serde = "0.8.2"
-serde_derive = "0.8.2"
-serde_json = "0.8.2"
-time = "0.1.35"
+clap = "2.29"
+lazy_static = "1.0"
+html-entities = "0.1"
+rand = "0.4"
+regex = "0.2"
+reqwest = "0.8"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+time = "0.1"

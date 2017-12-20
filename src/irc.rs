@@ -1,6 +1,5 @@
 use html_entities::decode_html_entities;
 use regex::Regex;
-use std::ascii::AsciiExt;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -225,12 +224,12 @@ impl IRC {
   fn url_scan(&self, nick: Nick, private: bool, content: String) {
     let re_match = RE_URL.find(&content);
   
-    if let Some((start_index, end_index)) = re_match {
+    if let Some(rem) = re_match {
       // clone a few stuff to bring with us in the thread
       let dest = if private { nick } else { self.channel.clone() };
       let writer = self.writer.clone();
   
-      let url = (&content[start_index .. end_index]).to_owned();
+      let url = (&content[rem.start() .. rem.end()]).to_owned();
       let _ = thread::spawn(move || Self::url_scan_work(writer, url, dest));
     }
   }
@@ -274,8 +273,8 @@ impl IRC {
 
     match (youtube_video_id, youtu_be_video_id) {
       (Some(ref captures), _) | (_, Some(ref captures)) => {
-        if let Some(video_id) = captures.at(1) {
-          return (format!("http://www.infinitelooper.com/?v={}", video_id), Some(FixedURLMethod::Youtube));
+        if let Some(video_id) = captures.get(1) {
+          return (format!("http://www.infinitelooper.com/?v={}", video_id.as_str()), Some(FixedURLMethod::Youtube));
         } else {
           return (String::new(), None);
         }
@@ -287,8 +286,8 @@ impl IRC {
 
     match i_imgur_id {
       Some(ref captures) => {
-        if let Some(img_id) = captures.at(1) {
-          return (format!("http://imgur.com/{}", img_id), Some(FixedURLMethod::Imgur));
+        if let Some(img_id) = captures.get(1) {
+          return (format!("http://imgur.com/{}", img_id.as_str()), Some(FixedURLMethod::Imgur));
         } else {
           return (String::new(), None);
         }
@@ -301,8 +300,8 @@ impl IRC {
 
   fn find_title(body: &str, fixed_url_method: Option<FixedURLMethod>) -> Option<String> {
     if let Some(captures) = RE_TITLE.captures(body) {
-      if let Some(title) = captures.at(1) {
-        let mut cleaned_title: String = title.chars().filter(|c| *c != '\n').collect();
+      if let Some(title) = captures.get(1) {
+        let mut cleaned_title: String = title.as_str().chars().filter(|c| *c != '\n').collect();
 
         // decode entities ; if we cannot, just dump the title as-is
         cleaned_title = decode_html_entities(&cleaned_title).unwrap_or(cleaned_title).trim().to_owned();
