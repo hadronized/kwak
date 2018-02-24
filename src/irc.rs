@@ -404,13 +404,15 @@ impl IRC {
   /// Action to take when a user said something.
   fn treat_privmsg(&mut self, nick: Nick, mut args: Vec<String>) {
     args[1].remove(0); // remove the leading ':' // FIXME: I guess we can remove that line
+
+    let dest = &args[0]; // args[0] contains the destination (channel if public, user if PM)
     let order = Self::extract_order(nick.clone(), &args[1..]);
   
     match order {
       Some(Order::Tell(from, to, content)) => self.tells.record(&from, &to, &content),
       Some(Order::PrependTopic(topic)) => self.prepend_topic(topic),
       Some(Order::ResetTopic(topic)) => self.reset_topic(topic),
-      Some(Order::BotQuote(words)) => self.bot_quote(&words),
+      Some(Order::BotQuote(words)) => self.bot_quote(&dest, &nick, &words),
       None => {
         // someone just said something, and it’s not an order, see whether we should say something
         if let Some(msgs) = self.tells.get(&nick.to_ascii_lowercase()).cloned() {
@@ -494,14 +496,19 @@ impl IRC {
   }
 
   /// Generate a line and say it on IRC.
-  fn bot_quote(&self, words: &[String]) {
+  fn bot_quote(&self, dest: &str, nick: &str, words: &[String]) {
     if words.is_empty() {
       return;
     }
 
     if let Some(ref markov) = self.markov_chain {
       let line = markov.gen_random_line(&words);
-      self.say(&line, None);
+
+      if dest == self.channel {
+        self.say(&line, None);
+      } else {
+        self.say(&line, Some(nick));
+      }
     }
   }
 }
