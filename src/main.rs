@@ -34,15 +34,14 @@ fn main() {
   let nick = conf.value_of("nick").unwrap();
   let tells_path = conf.value_of("tells").unwrap_or("tells.json");
   let log_path = conf.value_of("log").unwrap_or("log.txt");
+  let markov = conf.value_of("markov");
 
   // build the markov model using the log
-  let markov_chain = if let Ok(file) = File::open(log_path) {
+  let markov_chain = markov.map(|path| {
+    let file = File::open(path).expect("markov file unfound");
     let mut file = BufReader::new(file);
     MarkovChain::from_buf_read(&mut file)
-  } else {
-    println!("\x1b[31mno Markov data! learning from nothing\x1b[0m");
-    MarkovChain::new()
-  };
+  });
 
   // reload the tells
   let tells = Tells::new_from_path(&tells_path);

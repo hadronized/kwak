@@ -104,14 +104,14 @@ pub struct IRC {
   /// Tells.
   tells: Tells,
   /// Markov chain.
-  markov_chain: MarkovChain,
+  markov_chain: Option<MarkovChain>,
   /// Path to the log file.
   log_path: PathBuf,
 }
 
 impl IRC {
   /// Connect to an IRC server with a given name, then join the given channel.
-  pub fn connect(addr: &str, port: u16, nick: &str, channel: &str, tells: Tells, markov_chain: MarkovChain, log_path: &str) -> Self {
+  pub fn connect(addr: &str, port: u16, nick: &str, channel: &str, tells: Tells, markov_chain: Option<MarkovChain>, log_path: &str) -> Self {
     let stream = TcpStream::connect((addr, port)).unwrap();
     let writer = Arc::new(Mutex::new(IRCWriter {
       stream: stream.try_clone().unwrap(),
@@ -430,9 +430,11 @@ impl IRC {
     // log what the user said for future quotes
     self.log_msg(&format!("{} {}\n", nick, content));
   
-    // add what that people say to the markov model
-    let words: Vec<_> = (&args[1..]).iter().map(|s| &s[..]).collect();
-    self.markov_chain.treat_line(&words);
+    // add what that people say to the markov model if enabled
+    if let Some(ref mut markov) = self.markov_chain {
+      let words: Vec<_> = (&args[1..]).iter().map(|s| &s[..]).collect();
+      markov.treat_line(&words);
+    }
   
     // look for URLs to scan
     let private = &args[0] == &self.nick;
@@ -497,8 +499,10 @@ impl IRC {
       return;
     }
 
-    let line = self.markov_chain.gen_random_line(&words);
-    self.say(&line, None);
+    if let Some(ref markov) = self.markov_chain {
+      let line = markov.gen_random_line(&words);
+      self.say(&line, None);
+    }
   }
 }
 
