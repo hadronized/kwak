@@ -226,15 +226,15 @@ impl IRC {
   
     if let Some(rem) = re_match {
       // clone a few stuff to bring with us in the thread
-      let dest = if private { nick } else { self.channel.clone() };
+      let dest = if private { nick.clone() } else { self.channel.clone() };
       let writer = self.writer.clone();
   
       let url = (&content[rem.start() .. rem.end()]).to_owned();
-      let _ = thread::spawn(move || Self::url_scan_work(writer, url, dest));
+      let _ = thread::spawn(move || Self::url_scan_work(nick, writer, url, dest));
     }
   }
 
-  fn url_scan_work(writer: Arc<Mutex<IRCWriter>>, url: String, dest: String) {
+  fn url_scan_work(nick: Nick, writer: Arc<Mutex<IRCWriter>>, url: String, dest: String) {
     // fix some URLs that might cause problems
     let (url, fixed_url_method) = Self::fix_url(&url);
 
@@ -253,7 +253,7 @@ impl IRC {
 
         match title {
           Some(title) => {
-            writer.lock().unwrap().say(&format!("\x037«\x036 {} \x037»\x0F", title), &dest);
+            writer.lock().unwrap().say(&format!("{}: \x037«\x036 {} \x037»\x0F", nick, title), &dest);
           },
           None => {
             writer.lock().unwrap().say(&format!("\x036I’ve found nothing…\x0F"), &dest);
