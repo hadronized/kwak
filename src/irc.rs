@@ -41,7 +41,8 @@ enum Order {
   Tell(Nick, Nick, String),
   PrependTopic(String),
   ResetTopic(String),
-  BotQuote(Vec<String>)
+  BotQuote(Vec<String>),
+  ThisIsFine
 }
 
 struct IRCReader {
@@ -369,22 +370,30 @@ impl IRC {
         let content = msg[2..].join(" ");
   
         Some(Order::Tell(from, to, content))
-      },
+      }
+
       "!tropico" if msg.len() >= 2 => {
         // we want to prepend something to the current topic
         let content = msg[1..].join(" ");
         Some(Order::PrependTopic(content))
-      },
+      }
+
       "!tropicoset" if msg.len() >= 2 => {
         // want to reset the current topic
         let content = msg[1..].join(" ");
         Some(Order::ResetTopic(content))
-      },
+      }
+
       "!q" if msg.len() >= 2 => {
         // nothing to do; just ask for a uber cool quote!
         let words = (&msg[1..]).to_owned();
         Some(Order::BotQuote(words))
-      },
+      }
+
+      "!fine" if msg.len() == 1 => {
+        Some(Order::ThisIsFine)
+      }
+
       _ => None
     }
   }
@@ -413,6 +422,7 @@ impl IRC {
       Some(Order::PrependTopic(topic)) => self.prepend_topic(topic),
       Some(Order::ResetTopic(topic)) => self.reset_topic(topic),
       Some(Order::BotQuote(words)) => self.bot_quote(&dest, &nick, &words),
+      Some(Order::ThisIsFine) => self.this_is_fine(),
       None => {
         // someone just said something, and it’s not an order, see whether we should say something
         if let Some(msgs) = self.tells.get(&nick.to_ascii_lowercase()).cloned() {
@@ -510,6 +520,11 @@ impl IRC {
         self.say(&line, Some(nick));
       }
     }
+  }
+
+  // Show a link of the This Is Fine meme on the current channel.
+  fn this_is_fine(&self) {
+    self.say("https://phaazon.net/media/uploads/this_is_fine.jpg", None);
   }
 }
 
