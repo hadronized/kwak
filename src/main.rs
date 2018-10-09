@@ -49,6 +49,6 @@ fn main() {
   // create the IRC connection
   let mut irc = IRC::connect(host, IRC_PORT, nick, channel, tells, markov_chain, log_path);
 
-  irc.init();
+  irc.init().unwrap();
   irc.run();
 }

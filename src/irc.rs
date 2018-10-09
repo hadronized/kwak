@@ -54,14 +54,14 @@ struct IRCReader {
 
 impl IRCReader {
   /// Read a line from IRC.
-  fn read_line(&mut self) -> String {
+  fn read_line(&mut self) -> Option<String> {
     self.line_buf.clear();
-    let _ = self.stream.read_line(&mut self.line_buf);
+    let bytes = self.stream.read_line(&mut self.line_buf).ok();
     let line = self.line_buf.trim().to_owned();
 
     println!("<-- {}", line);
 
-    line
+    bytes.map(|_| line)
   }
 }
 
@@ -88,6 +88,11 @@ impl IRCWriter {
       self.last_say_instant = Instant::now();
     }
   }
+}
+
+#[derive(Debug)]
+pub enum InitError {
+  CannotInitialize(String)
 }
 
 /// IRC client.
@@ -137,7 +142,7 @@ impl IRC {
 
   /// IRC initialization protocol implementation. Also, this function automatically joins the
   /// channel.
-  pub fn init(&self) {
+  pub fn init(&self) -> Result<(), InitError> {
     {
       let mut writer = self.writer.lock().unwrap();
       writer.write_line(&format!("USER a {0:} {0:} :d", self.host));
@@ -147,7 +152,10 @@ impl IRC {
     loop {
       let line = {
         let mut reader = self.reader.lock().unwrap();
-        reader.read_line()
+
+        reader.read_line().ok_or_else(||
+          InitError::CannotInitialize("cannot read from IRC".to_owned())
+        )?
       };
 
       if Self::is_ping(&line) {
@@ -160,12 +168,22 @@ impl IRC {
 
     let mut writer = self.writer.lock().unwrap();
     writer.write_line(&format!("JOIN {}", self.channel));
+
+    Ok(())
   }
 
   /// Run IRC.
   pub fn run(&mut self) -> ! {
     loop {
-      let line = { self.reader.lock().unwrap().read_line() };
+      let line = {
+        match self.reader.lock().unwrap().read_line() {
+          Some(line) => line,
+          None => {
+            eprintln!("unable to read line from IRC; trying again");
+            continue
+          }
+        }
+      };
 
       if Self::is_ping(&line) {
         self.handle_ping(&line);
@@ -456,7 +474,7 @@ impl IRC {
   /// What to do after we’ve quitted the channel.
   fn on_quit(&self) {
     thread::sleep(Duration::from_secs(1));
-    self.init();
+    let _ = self.init();
   }
 
   /// Read the topic on the current channel.
@@ -469,9 +487,9 @@ impl IRC {
   
     // get the topic
     let topic = {
-      self.reader.lock().unwrap().read_line()
+      opt!(self.reader.lock().unwrap().read_line())
     };
-  
+
     // clean it
     (&topic[1..]).find(':').map(|colon_ix| { // [1..] removes the first ':' (IRC proto)
       let colon_ix = colon_ix + 2;
@@ -494,7 +512,8 @@ impl IRC {
         self.writer.lock().unwrap().write_line(&new_topic);
       },
       _ => {
-        println!("\x1b[31munable to get topic\x1b[0m");
+        eprintln!("\x1b[31munable to get topic\x1b[0m");
+        self.say("I can’t do that, UTF-8 is fucked up! :'(", None);
       }
     }
   }
