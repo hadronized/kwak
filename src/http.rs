@@ -1,20 +1,18 @@
 use reqwest::{Client, Response, Result};
-use reqwest::header::{Accept, AcceptCharset, Charset, ContentLength, ContentType, Headers,
-                      UserAgent, qitem};
-use reqwest::mime::{TEXT_HTML, TEXT_HTML_UTF_8};
+use reqwest::header::{
+  ACCEPT, ACCEPT_CHARSET,CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT, HeaderMap, HeaderValue
+};
 
 pub fn http_get(url: &str) -> Result<Response> {
-  let mut headers = Headers::new();
+  let mut headers = HeaderMap::new();
 
-  headers.set(Accept(vec![qitem(TEXT_HTML), qitem(TEXT_HTML_UTF_8)]));
-  headers.set(
-    AcceptCharset(vec![
-      qitem(Charset::Ext("utf-8".to_owned())),
-      qitem(Charset::Ext("iso-8859-1".to_owned())),
-      qitem(Charset::Iso_8859_1)
-    ])
-  );
-  headers.set(UserAgent::new("reqwest/0.8.1"));
+  headers.insert(USER_AGENT, HeaderValue::from_static("kwak/0.1"));
+
+  headers.insert(ACCEPT, HeaderValue::from_static("text/html"));
+  headers.append(ACCEPT, HeaderValue::from_static("text/html; charset=utf-8"));
+
+  headers.insert(ACCEPT_CHARSET, HeaderValue::from_static("utf-8"));
+  headers.append(ACCEPT_CHARSET, HeaderValue::from_static("iso-8859-1"));
 
   println!("\x1b[36mGET {}\x1b[0m", url);
 
@@ -27,9 +25,14 @@ pub fn http_get(url: &str) -> Result<Response> {
 
 /// Check that a HTTP GET response is valid – i.e. check for the HTTP headers that we can read the
 /// body.
-pub fn is_http_response_valid(url: &str, headers: &Headers) -> bool {
+pub fn is_http_response_valid(url: &str, headers: &HeaderMap) -> bool {
   // inspect the header to deny big things
-  if let Some(&ContentLength(bytes)) = headers.get() {
+  let bytes: Option<u32> =
+    headers.get(CONTENT_LENGTH)
+           .and_then(|v| v.to_str().ok())
+           .and_then(|h| h.parse().ok());
+
+  if let Some(bytes) = bytes {
     println!("\x1b[36msize {} bytes\x1b[0m", bytes);
 
     // deny anything >= 1MB
@@ -40,12 +43,14 @@ pub fn is_http_response_valid(url: &str, headers: &Headers) -> bool {
   }
 
   // inspect mime (we only want HTML)
-  if let Some(&ContentType(ref ty)) = headers.get() {
-    println!("\x1b[36mty {:?}\x1b[0m", ty);
+  let mime = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok());
+
+  if let Some(mime) = mime {
+    println!("\x1b[36mmime {:?}\x1b[0m", mime);
 
     // deny anything that is not HTML
-    if *ty != TEXT_HTML && *ty != TEXT_HTML_UTF_8 {
-      println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, ty);
+    if mime != "text/html" && mime != "text/html; charset=utf-8" {
+      println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, mime);
       return false;
     }
   }

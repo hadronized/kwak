@@ -46,7 +46,7 @@ fn main() {
   // reload the tells
   let tells = Tells::new_from_path(&tells_path);
 
-  //// create the IRC connection
+  // create the IRC connection
   let mut irc = IRC::connect(host, IRC_PORT, nick, channel, tells, markov_chain, log_path);
 
   irc.init();

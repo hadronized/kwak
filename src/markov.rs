@@ -1,5 +1,5 @@
 use rand::thread_rng;
-use rand::distributions::{IndependentSample, Range};
+use rand::distributions::{Distribution, Range};
 use std::collections::{HashMap, LinkedList};
 use std::io::BufRead;
 use std::str::from_utf8;
@@ -168,7 +168,7 @@ impl MarkovChain {
       }
 
       let between = Range::new(0, words.len());
-      let index = between.ind_sample(&mut rng);
+      let index = between.sample(&mut rng);
       let pick = words[index].0.clone();
 
       out.push_front(pick.clone());
@@ -192,7 +192,7 @@ impl MarkovChain {
       }
 
       let between = Range::new(0, words.len());
-      let index = between.ind_sample(&mut rng);
+      let index = between.sample(&mut rng);
       let pick = words[index].0.clone();
 
       out.push_back(pick.clone());
