@@ -10,9 +10,12 @@ pub fn http_get(url: &str) -> Result<Response> {
 
   headers.insert(ACCEPT, HeaderValue::from_static("text/html"));
   headers.append(ACCEPT, HeaderValue::from_static("text/html; charset=utf-8"));
+  headers.append(ACCEPT, HeaderValue::from_static("text/html; charset=UTF-8"));
 
   headers.insert(ACCEPT_CHARSET, HeaderValue::from_static("utf-8"));
+  headers.insert(ACCEPT_CHARSET, HeaderValue::from_static("UTF-8"));
   headers.append(ACCEPT_CHARSET, HeaderValue::from_static("iso-8859-1"));
+  headers.append(ACCEPT_CHARSET, HeaderValue::from_static("ISO-8859-1"));
 
   println!("\x1b[36mGET {}\x1b[0m", url);
 
@@ -49,7 +52,7 @@ pub fn is_http_response_valid(url: &str, headers: &HeaderMap) -> bool {
     println!("\x1b[36mmime {:?}\x1b[0m", mime);
 
     // deny anything that is not HTML
-    if mime != "text/html" && mime != "text/html; charset=utf-8" {
+    if !mime.starts_with("text/html") {
       println!("\x1b[31m{} is not plain HTML: {:?}\x1b[0m", url, mime);
       return false;
     }
