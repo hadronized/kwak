@@ -88,6 +88,14 @@ impl IRCWriter {
       self.last_say_instant = Instant::now();
     }
   }
+
+  /// Notice something on IRC.
+  fn notice(&mut self, msg: &str, dest: &str) {
+    if self.last_say_instant.elapsed() >= Duration::from_millis(MIN_MS_BETWEEN_SAYS) {
+      self.write_line(&format!("NOTICE {} :{}", dest, msg));
+      self.last_say_instant = Instant::now();
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -249,11 +257,11 @@ impl IRC {
       let writer = self.writer.clone();
   
       let url = (&content[rem.start() .. rem.end()]).to_owned();
-      let _ = thread::spawn(move || Self::url_scan_work(nick, writer, url, dest));
+      let _ = thread::spawn(move || Self::url_scan_work(writer, url, dest));
     }
   }
 
-  fn url_scan_work(nick: Nick, writer: Arc<Mutex<IRCWriter>>, url: String, dest: String) {
+  fn url_scan_work(writer: Arc<Mutex<IRCWriter>>, url: String, dest: String) {
     // fix some URLs that might cause problems
     let (url, fixed_url_method) = Self::fix_url(&url);
 
@@ -270,13 +278,8 @@ impl IRC {
         // find the title
         let title = Self::find_title(&body, fixed_url_method);
 
-        match title {
-          Some(title) => {
-            writer.lock().unwrap().say(&format!("{}: \x037«\x036 {} \x037»\x0F", nick, title), &dest);
-          },
-          None => {
-            writer.lock().unwrap().say(&format!("\x036I’ve found nothing…\x0F"), &dest);
-          }
+        if let Some(title) = title {
+          writer.lock().unwrap().notice(&format!("\x037⤷\x036 {} \x0F", title), &dest);
         }
       },
       Err(e) => {
