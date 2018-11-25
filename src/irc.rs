@@ -42,7 +42,8 @@ enum Order {
   PrependTopic(String),
   ResetTopic(String),
   BotQuote(Vec<String>),
-  ThisIsFine
+  ThisIsFine,
+  Shrug
 }
 
 struct IRCReader {
@@ -415,6 +416,10 @@ impl IRC {
         Some(Order::ThisIsFine)
       }
 
+      "!shrug" if msg.len() == 1 => {
+        Some(Order::Shrug)
+      }
+
       _ => None
     }
   }
@@ -444,6 +449,7 @@ impl IRC {
       Some(Order::ResetTopic(topic)) => self.reset_topic(topic),
       Some(Order::BotQuote(words)) => self.bot_quote(&dest, &nick, &words),
       Some(Order::ThisIsFine) => self.this_is_fine(),
+      Some(Order::Shrug) => self.shrug(),
       None => {
         // someone just said something, and it’s not an order, see whether we should say something
         if let Some(msgs) = self.tells.get(&nick.to_ascii_lowercase()).cloned() {
@@ -547,6 +553,11 @@ impl IRC {
   // Show a link of the This Is Fine meme on the current channel.
   fn this_is_fine(&self) {
     self.say("https://phaazon.net/media/uploads/this_is_fine.jpg", None);
+  }
+
+  // Show a shrug.
+  fn shrug(&self) {
+    self.say("¯\\_(ツ)_/¯", None);
   }
 }
 
