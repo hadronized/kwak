@@ -273,8 +273,7 @@ impl IRC {
           return;
         }
 
-        let mut body = String::new();
-        let _ = response.read_to_string(&mut body);
+        let body = response.text().unwrap();
 
         // find the title
         let title = Self::find_title(&body, fixed_url_method);
@@ -322,12 +321,12 @@ impl IRC {
   }
 
   fn find_title(body: &str, fixed_url_method: Option<FixedURLMethod>) -> Option<String> {
-    if let Some(captures) = RE_TITLE.captures(body) {
-      if let Some(title) = captures.get(1) {
-        let mut cleaned_title: String = title.as_str().chars().filter(|c| *c != '\n').collect();
-
-        // decode entities ; if we cannot, just dump the title as-is
-        cleaned_title = decode_html_entities(&cleaned_title).unwrap_or(cleaned_title).trim().to_owned();
+    RE_TITLE
+      .captures(body)
+      .and_then(|captures| captures.get(1))
+      .and_then(|title| decode_html_entities(title.as_str()).ok())
+      .and_then(|title| {
+        let mut cleaned_title: String = title.replace(|c| c == '\n' || c == '\r', " ");
 
         if let Some(FixedURLMethod::Youtube) = fixed_url_method {
           cleaned_title = Self::fix_youtube_title(&cleaned_title);
@@ -335,12 +334,7 @@ impl IRC {
 
         // remove internal consecutive spaces and output
         Some(remove_consecutive_whitespaces(&cleaned_title))
-      } else {
-        None
-      }
-    } else {
-      None
-    }
+      })
   }
 
   /// Fix a Youtube title.
